@@ -14,6 +14,11 @@
     <Nullable>enable</Nullable>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
 
+    <!-- 入口点自己写（Program.cs）：单实例检查必须在 WinUI 起来之前跑。
+         被替换掉的 XAML 生成入口（obj/.../App.g.i.cs）里那句 new App() 仍然参与编译，
+         所以 App 的无参构造函数不能删、闸门只能构造后塞进去。 -->
+    <DefineConstants>$(DefineConstants);DISABLE_XAML_GENERATED_MAIN</DefineConstants>
+
     <!-- 非打包 (Unpackaged) 应用：无需 MSIX 身份，dotnet run 直接启动 -->
     <WindowsPackageType>None</WindowsPackageType>
     <WindowsAppSDKSelfContained>true</WindowsAppSDKSelfContained>

@@ -203,6 +203,25 @@ public sealed class ClipboardHistory
         QueuePersist();
     }
 
+    /// <summary>
+    /// 删掉单独一条（右滑删除）。连同它的图片缓存一起删，删到了返回 true。
+    /// 按 Id 找而不是按引用找：列表被重建过之后，界面上那一行拿的还是同一条记录，
+    /// 但引用比对在别处（比如从磁盘重载历史之后）不牢靠。
+    /// </summary>
+    public bool Remove(ClipItem item)
+    {
+        var index = _items.FindIndex(i => string.Equals(i.Id, item.Id, StringComparison.Ordinal));
+        if (index < 0) return false;
+
+        var removed = _items[index];
+        _items.RemoveAt(index);
+        DeleteImageFile(removed);
+
+        Changed?.Invoke();
+        QueuePersist();
+        return true;
+    }
+
     /// <summary>清空历史，并把缓存图片全部删掉。</summary>
     public void Clear()
     {

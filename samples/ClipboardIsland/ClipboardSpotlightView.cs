@@ -18,6 +18,7 @@ public sealed class ClipboardSpotlightView : UserControl
     private readonly PluginManifest _manifest;
     private readonly Action<ClipItem>? _onPick;
     private readonly Action? _onClear;
+    private readonly Action<ClipItem>? _onDelete;
     private readonly IIslandTheme _theme;
 
     private readonly SolidColorBrush _textBrush;
@@ -35,11 +36,12 @@ public sealed class ClipboardSpotlightView : UserControl
         ? Windows.UI.Color.FromArgb(alpha, 0, 0, 0)
         : Windows.UI.Color.FromArgb(alpha, 255, 255, 255);
 
-    public ClipboardSpotlightView(PluginManifest manifest, Action<ClipItem>? onPick, Action? onClear, IIslandTheme theme)
+    public ClipboardSpotlightView(PluginManifest manifest, Action<ClipItem>? onPick, Action? onClear, Action<ClipItem>? onDelete, IIslandTheme theme)
     {
         _manifest = manifest;
         _onPick = onPick;
         _onClear = onClear;
+        _onDelete = onDelete;
         _theme = theme;
 
         // 聚光卡也跟着岛体主题明暗：浅色卡片上写死白色就是白字压白底
@@ -77,7 +79,7 @@ public sealed class ClipboardSpotlightView : UserControl
 
         var hint = new TextBlock
         {
-            Text = "点任意一条直接粘进你正在输入的窗口 · 按 Esc 或点卡片外区域收起",
+            Text = "点任意一条直接粘进你正在输入的窗口 · 按住往右拖一条就把它删掉 · 按 Esc 或点卡片外区域收起",
             FontSize = 12.5,
             TextWrapping = TextWrapping.Wrap,
             Foreground = _hintBrush,
@@ -123,9 +125,17 @@ public sealed class ClipboardSpotlightView : UserControl
         Content = root;
     }
 
-    /// <summary>把最新的历史铺进卡片（每次打开前由插件调用）。</summary>
-    public void Refresh(IReadOnlyList<ClipItem> items)
+    /// <summary>
+    /// 把最新的历史铺进卡片（每次打开前由插件调用）。
+    ///
+    /// <paramref name="keepScroll"/> 给「删掉一条之后就地重建」用：列表是先清空再重铺的，
+    /// 清空那一瞬间滚动范围归零，位置就被系统夹回顶部了 —— 连着删下面几条时会一直被弹回顶部。
+    /// 所以删完补一次布局，再把位置拨回去。
+    /// </summary>
+    public void Refresh(IReadOnlyList<ClipItem> items, bool keepScroll = false)
     {
+        var offset = keepScroll ? _scroller.VerticalOffset : 0;
+
         ResetClearButton();
 
         _count.Text = items.Count > 0 ? $"{items.Count} 条" : string.Empty;
@@ -133,13 +143,18 @@ public sealed class ClipboardSpotlightView : UserControl
         _rows.Children.Clear();
         foreach (var item in items)
         {
-            _rows.Children.Add(new ClipRow(item, _theme, interactive: true, invoke: _onPick));
+            _rows.Children.Add(new ClipRow(item, _theme, interactive: true, invoke: _onPick, onDelete: _onDelete));
         }
 
         var hasItems = items.Count > 0;
         _scroller.Visibility = hasItems ? Visibility.Visible : Visibility.Collapsed;
         _empty.Visibility = hasItems ? Visibility.Collapsed : Visibility.Visible;
         _clearButton.IsEnabled = hasItems;
+
+        if (offset <= 0 || !hasItems) return;
+
+        _rows.UpdateLayout();
+        _scroller.ChangeView(null, offset, null, true);
     }
 
     /// <summary>宿主收起卡片时回调（点卡片外 / Esc / 被别的插件替换 / 插件停用）。</summary>

@@ -16,7 +16,11 @@ public interface IMorphView
     void AnimateToCompact(TimeSpan duration);
 }
 
-public sealed class IslandLiveContent
+/// <summary>
+/// 岛体要展示的常驻内容。record：宿主登记时用 <c>with</c> 整体复制一份、只覆盖回调
+/// （<see cref="OnTap"/>），因此之后新增属性不会被漏抄。
+/// </summary>
+public sealed record IslandLiveContent
 {
     public int Priority { get; init; }
     public string? OwnerLabel { get; init; }
@@ -79,11 +83,13 @@ public enum IslandDropKind
 }
 
 /// <summary>
-/// 文件投放目标：把文件/文件夹拖到岛上时，岛会展开成一排投放卡片，
-/// 拖到某张卡片上松手就执行它。展示、滚动与命中全部由宿主接管，插件只负责拿到路径后干活。
+/// 投放目标：把文件/文本/图片拖到岛上时，岛会展开成一排投放卡片，
+/// 拖到某张卡片上松手就执行它。展示、滚动与命中全部由宿主接管，插件只负责拿到载荷后干活。
 /// 需要宿主 2.2.0 及以上（清单里用 <c>min_host_version: "2.2.0"</c> 做门槛）。
+/// record：宿主登记时用 <c>with</c> 整体复制一份、只覆盖回调（<see cref="Handler"/>），
+/// 因此之后新增属性（例如 <see cref="Kinds"/> 之后再来的字段）不会被漏抄。
 /// </summary>
-public sealed class IslandDropTarget
+public sealed record IslandDropTarget
 {
     /// <summary>插件内唯一的标识；重复注册同一个 Id 会覆盖前一个。</summary>
     public required string Id { get; init; }

@@ -27,6 +27,12 @@ public partial class App : Application
     internal OnboardingWindow? _onboardingWindow;
     private bool _exiting;
 
+    /// <summary>
+    /// 启动时抢到的单实例闸门，由 Program.Main 在构造之后塞进来（XAML 生成的入口里那句 <c>new App()</c>
+    /// 必须能编译，所以构造函数不能带参数）。有人重复启动时靠它把设置窗口亮出来。
+    /// </summary>
+    internal SingleInstance? InstanceGate { get; set; }
+
     public App()
     {
         _logs = new PluginLogService();
@@ -110,6 +116,10 @@ public partial class App : Application
             _logs.Host.Info(
                 $"WinIsland 已启动（宿主 SDK {IslandSdk.HostVersion}，程序版本 {_updates.CurrentVersionText}，插件目录 {_plugins.PluginsDirectory}）。");
 
+            // 有人重复启动时把自己亮出来。挂在这里而不是构造函数里：早到的通知会被闸门留到这一刻再送过来，
+            // 因此回调跑的时候设置页、托盘、岛都已经就位
+            InstanceGate?.ListenForActivation(() => _island.DispatcherQueue.TryEnqueue(OnDuplicateLaunch));
+
             _ = AutoCheckUpdatesAsync();
 
             if (!_settings.Get(OnboardingWindow.DoneSettingKey, false))
@@ -121,6 +131,16 @@ public partial class App : Application
         {
             _logs.Host.Error("应用启动失败", ex);
         }
+    }
+
+    /// <summary>
+    /// 检测到有人重复启动本应用（单实例闸门已经拦下那个进程）：把自己亮出来。
+    /// 重复点图标的人多半就是想找设置窗口 —— 岛只有贴着屏幕边的一小条，光提醒「已经开了」等于什么都没说。
+    /// </summary>
+    private void OnDuplicateLaunch()
+    {
+        _logs.Host.Info("检测到重复启动：已拒绝新实例，并把设置窗口调到前面。");
+        OpenSettingsWindow(null);
     }
 
     /// <summary>

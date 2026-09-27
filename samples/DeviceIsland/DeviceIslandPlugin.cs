@@ -28,9 +28,10 @@ public sealed class DeviceIslandPlugin : IslandPluginBase
     private static readonly TimeSpan EventTextLifetime = TimeSpan.FromSeconds(6);
 
     /// <summary>
-    /// 默认岛上优先级。**宿主同时最多只渲染 10 条活动**（主岛 1 + 展开队列 9 张卡：每列 3 张、
-    /// 最多 3 列，见宿主 <c>IslandWindow.MaxQueueCards</c>，多出来的换到右边一列），按优先级从大到小
-    /// 取前 10 —— 排到第 11 名及以后的插件**连展开都看不到**（既不显示、也不报错，静默消失）。
+    /// 默认岛上优先级。宿主按优先级从大到小排：主岛 1 条 + 展开队列 3 张卡
+    /// （前两张固定、最后一张是「翻页位」，队列还有别的活动时末尾会出现圆形切换按钮逐张翻，
+    /// 见宿主 <c>IslandWindow.QueueVisibleCards</c>）—— 所有活动都翻得到，
+    /// 优先级只决定顺序，不再决定「看不看得到」。
     ///
     /// 常驻插件实测：媒体 100（播放时）/ 剪贴板 55 / 电池 50 / 天气 40。这里取 45：
     /// 刚好高于天气，稳进常驻插件那一档。要调就改设置里的「岛上优先级」

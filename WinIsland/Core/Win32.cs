@@ -799,4 +799,33 @@ internal static partial class Win32
 
     public const uint IMAGE_BITMAP = 0;
     public const uint LR_COPYRETURNORG = 0x00000004;
+
+    // ---- 启动期的原生提示框：单实例闸门跑在 XAML 之前，那会儿没有任何 XAML 对话框可用 ----
+
+    private const uint MB_OK = 0x0000_0000;
+    private const uint MB_ICONINFORMATION = 0x0000_0040;
+    private const uint MB_SETFOREGROUND = 0x0001_0000;
+    private const uint MB_TOPMOST = 0x0004_0000;
+
+    /// <summary>ASFW_ANY：不限定进程，谁抢前台都放行。</summary>
+    public const uint ASFW_ANY = 0xFFFF_FFFF;
+
+    /// <summary>把「可以抢前台」的资格交给别的进程（调用方自己得能抢前台）。</summary>
+    [LibraryImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    public static partial bool AllowSetForegroundWindow(uint processId);
+
+    [LibraryImport("user32.dll", EntryPoint = "MessageBoxW", StringMarshalling = StringMarshalling.Utf16)]
+    private static partial int MessageBox(nint hWnd, string text, string caption, uint type);
+
+    /// <summary>
+    /// 原生模态提示框。<paramref name="text"/> 里用 \n 换行即可。
+    /// 置顶显示：调用它的重复实例马上就会退出，这条提醒不能被随后弹出来的设置窗口盖住。
+    /// </summary>
+    public static void ShowStartupMessage(string text, string caption)
+        => MessageBox(
+            nint.Zero,
+            text.Replace("\n", "\r\n"),
+            caption,
+            MB_OK | MB_ICONINFORMATION | MB_SETFOREGROUND | MB_TOPMOST);
 }

@@ -57,14 +57,14 @@ public sealed class WeatherSpotlightView : UserControl
     private readonly TextBlock _hoursEmpty;
     private readonly TextBlock _daysEmpty;
 
+    /// <summary>最近一次铺上的快照。图标填充色烘在画刷里，岛体换主题时只能按新配色重画，
+    /// 所以必须留着它，重画时还要照着原样把逐时 / 逐日两块重新铺一遍。</summary>
+    private WeatherSnapshot _last = WeatherSnapshot.Empty;
+
     public WeatherSpotlightView(IIslandTheme theme, Func<Task> onRefresh)
     {
         _theme = theme;
         _onRefresh = onRefresh;
-        ApplyThemeColors();
-
-        // 视图与主题同生命周期（插件持有本实例）：构造时订阅，插件停用时由 Detach 退订
-        _theme.Changed += ApplyThemeColors;
 
         // ---------------- 头部：大图标 + 大字温度 + 地点 / 更新时间 / 日出日落 ----------------
         _heroIcon = new Viewbox
@@ -72,7 +72,7 @@ public sealed class WeatherSpotlightView : UserControl
             Width = 64,
             Height = 64,
             VerticalAlignment = VerticalAlignment.Center,
-            Child = WeatherIcon.Create(0),
+            Child = WeatherIcon.Create(0, true, theme.IsLight),
         };
 
         _heroTemp = new TextBlock
@@ -251,18 +251,27 @@ public sealed class WeatherSpotlightView : UserControl
         root.Children.Add(_daysEmpty);
 
         Content = root;
+
+        // 主题色与图标都要等元素全部搭完再刷一遍，所以放在最后；
+        // 订阅也放最后：回调会重建图标、重铺逐时 / 逐日两块，构造中途被回调会摸到还没赋值的字段
+        ApplyThemeColors();
+
+        // 视图与主题同生命周期（插件持有本实例）：构造时订阅，插件停用时由 Detach 退订
+        _theme.Changed += ApplyThemeColors;
     }
 
     /// <summary>把一次天气快照铺到卡片上（UI 线程调用）。</summary>
     public void Apply(WeatherSnapshot snapshot)
     {
+        _last = snapshot;
+
         if (!snapshot.HasData)
         {
             ApplyEmpty(snapshot.Error ?? "暂无数据");
             return;
         }
 
-        _heroIcon.Child = WeatherIcon.Create(snapshot.Code, snapshot.IsDay);
+        _heroIcon.Child = WeatherIcon.Create(snapshot.Code, snapshot.IsDay, _theme.IsLight);
         _heroTemp.Text = $"{snapshot.Temperature:0.#}°";
         _heroCondition.Text = WeatherCodes.Describe(snapshot.Code)
                               + (snapshot.IsDay ? "" : " · 夜间");
@@ -293,7 +302,7 @@ public sealed class WeatherSpotlightView : UserControl
 
     private void ApplyEmpty(string reason)
     {
-        _heroIcon.Child = WeatherIcon.Create(-1);
+        _heroIcon.Child = WeatherIcon.Create(-1, true, _theme.IsLight);
         _heroTemp.Text = "--°";
         _heroCondition.Text = reason;
         _place.Text = "--";
@@ -484,7 +493,7 @@ public sealed class WeatherSpotlightView : UserControl
         {
             Width = 26,
             Height = 26,
-            Child = WeatherIcon.Create(hour.Code, hour.IsDay),
+            Child = WeatherIcon.Create(hour.Code, hour.IsDay, _theme.IsLight),
             HorizontalAlignment = HorizontalAlignment.Center,
         });
 
@@ -535,7 +544,7 @@ public sealed class WeatherSpotlightView : UserControl
         {
             Width = 24,
             Height = 24,
-            Child = WeatherIcon.Create(day.Code),
+            Child = WeatherIcon.Create(day.Code, true, _theme.IsLight),
             VerticalAlignment = VerticalAlignment.Center,
         };
 
@@ -625,11 +634,14 @@ public sealed class WeatherSpotlightView : UserControl
         return bar;
     }
 
-    private static TextBlock SectionHeader(string text) => new()
+    /// <summary>小节标题也显式走共享画刷：不写 Foreground 等于把颜色让给父级主题，
+    /// 而卡片是宿主给的另一棵树，主题不一定和岛体同源，写死成岛体主题更一致。</summary>
+    private TextBlock SectionHeader(string text) => new()
     {
         Text = text,
         FontSize = 14.5,
         FontWeight = FontWeights.SemiBold,
+        Foreground = _textBrush,
     };
 
     private Border Divider() => new() { Height = 1, Background = _dividerBrush };
@@ -670,6 +682,15 @@ public sealed class WeatherSpotlightView : UserControl
         _tileBrush.Color = Neutral(16);
         _dividerBrush.Color = Neutral(28);
         _trackBrush.Color = Neutral(26);
+
+        // 图标不是改颜色能跟着走的（填充色烘在各自的画刷里），按新主题重画一遍；
+        // 逐时 / 逐日两块是动态搭的，重铺一次最省事也最不容易漏
+        _heroIcon.Child = WeatherIcon.Create(_last.HasData ? _last.Code : -1, _last.IsDay, _theme.IsLight);
+        if (_last.HasData)
+        {
+            ApplyHours(_last);
+            ApplyDays(_last);
+        }
     }
 
     private Windows.UI.Color Neutral(byte alpha) => _theme.IsLight

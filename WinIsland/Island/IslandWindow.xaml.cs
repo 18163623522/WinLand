@@ -28,14 +28,22 @@ public sealed partial class IslandWindow : Window
     private const double Pad = 24;
     /// <summary>岛体与展开队列之间的间距（与 XAML 里 IslandStack 的 RowSpacing 一致）。</summary>
     private const double QueueSpacing = 8;
-    /// <summary>展开队列每列最多几张卡片：放满就换到右边一列。</summary>
-    private const int QueueCardsPerColumn = 3;
-    /// <summary>展开队列的列数上限：三列共九张卡，是常见屏幕放得下的上限。</summary>
-    private const int MaxQueueColumns = 3;
-    /// <summary>展开时最多渲染的队列卡片数（主岛之外的那部分）。</summary>
-    private const int MaxQueueCards = QueueCardsPerColumn * MaxQueueColumns;
-    /// <summary>队列卡片之间的间距（同列上下 / 相邻两列）。</summary>
+    /// <summary>展开队列一屏显示几张卡：前面几张固定，最后一张是翻页位（队列表太长时由按钮翻）。</summary>
+    private const int QueueVisibleCards = 3;
+    /// <summary>队列卡片之间、以及最后一张卡与翻页按钮之间的间距。</summary>
     private const double QueueCardGap = 6;
+    /// <summary>队列翻页按钮的直径（正圆）。</summary>
+    private const double QueuePagerSize = 32;
+    /// <summary>翻页按钮的箭头（Segoe Fluent Icons）：指向远端，也就是「下一张从哪边来」。</summary>
+    private const string QueuePagerGlyphDown = "\uE70D";
+    private const string QueuePagerGlyphUp = "\uE70E";
+    /// <summary>翻页动画：旧卡先走、新卡稍后进，与内容交接同一套节奏（两段错开一点点）。</summary>
+    private static readonly TimeSpan PageOutDuration = TimeSpan.FromMilliseconds(140);
+    private static readonly TimeSpan PageInDuration = TimeSpan.FromMilliseconds(200);
+    private static readonly TimeSpan PageInDelay = TimeSpan.FromMilliseconds(60);
+    /// <summary>翻页时新卡内容层的起始缩放：只缩不放（恒 ≤ 1），所以永远不会越出卡片矩形。</summary>
+    private const double PageEnterScale = 0.97;
+    private static readonly string[] ScaleProperties = { "ScaleX", "ScaleY" };
     private static readonly Size IdleSize = new(128, 34);
     private static readonly TimeSpan ExpandDuration = TimeSpan.FromMilliseconds(333);
     private static readonly TimeSpan CollapseDuration = TimeSpan.FromMilliseconds(250);
@@ -132,6 +140,19 @@ public sealed partial class IslandWindow : Window
     // 外观风格（island.style / island.material）：材质、底衬、描边、圆角与空闲点颜色都由它决定
     private readonly IslandSurface _mainSurface;
     private readonly List<IslandSurface> _queueSurfaces = new();
+    /// <summary>
+    /// 翻页位（展开队列最后一张卡）指向的队列下标。插件 SetLive 刷新会不断重建队列，
+    /// 所以这个下标只在收起时归零、绝不在重建里重置 —— 否则高频刷新（媒体每秒一次）下根本翻不动。
+    /// </summary>
+    private int _tailIndex = QueueVisibleCards - 1;
+    /// <summary>翻页位当前的卡面（与 <see cref="_tailIndex"/> 同源，翻页动画收尾时要用）。</summary>
+    private IslandSurface? _tailSurface;
+    /// <summary>队列翻页按钮（队列超过 <see cref="QueueVisibleCards"/> 条时才存在）。</summary>
+    private QueuePager? _pager;
+    /// <summary>翻页动画：正在退场的旧卡、动画本体与防串台版本号。</summary>
+    private IslandSurface? _pageOutgoing;
+    private Storyboard? _pageAnim;
+    private int _pageAnimVersion;
     private readonly Ellipse _idleDot;
     private IslandStyleKind _style = IslandStyleKind.Apple;
     private IslandMaterialKind _material = IslandMaterialKind.Acrylic;
@@ -345,6 +366,7 @@ public sealed partial class IslandWindow : Window
 
         // 收起时先安全拆卸队列，再收起主岛
         TeardownQueue();
+        ResetQueuePager();
         _expanded = false;
 
         // 内容交接（旧内容淡出 → 新内容淡入）与尺寸 morph 同时开始：两者同拍落地才像"一次换气"
@@ -606,7 +628,7 @@ public sealed partial class IslandWindow : Window
         _backdropOwned = false;
     }
 
-    /// <summary>就地刷新队列卡片的外观（不重放形态动画）。</summary>
+    /// <summary>就地刷新队列卡片与翻页按钮的外观（不重放形态动画）。</summary>
     private void RefreshQueueStyle()
     {
         foreach (var surface in _queueSurfaces)
@@ -614,6 +636,8 @@ public sealed partial class IslandWindow : Window
             surface.ApplyStyle(_style, _materialApplied, _light);
             surface.SetRadius(IslandStyle.ResolveQueueRadius(_style, surface.Border.Height));
         }
+
+        _pager?.ApplyStyle(_style, _materialApplied, _light);
     }
 
     public void ShowIsland()
@@ -635,26 +659,41 @@ public sealed partial class IslandWindow : Window
         var queue = QueueItems;
         if (expanded && queue.Count > 0)
         {
-            // 队列换行成多列：宽度按列数摊开，高度只算一列的行数（主岛自己仍只有一列宽）
-            int count = Math.Min(queue.Count, MaxQueueCards);
-            int columns = QueueColumnCount(count);
-            int rows = QueueRowCount(count);
-            double width = Math.Max(main.Width, columns * StackWidth() + (columns - 1) * QueueCardGap);
+            // 单列：宽度恒为主岛宽（翻页按钮更窄、水平居中），高度 = 主岛 + 一屏卡片 +（有按钮时的）按钮行
+            int shown = Math.Min(queue.Count, QueueVisibleCards);
             double height = main.Height + QueueSpacing
-                            + rows * QueueCardHeight() + (rows - 1) * QueueCardGap;
-            return new Size(width, height);
+                            + shown * QueueCardHeight() + (shown - 1) * QueueCardGap
+                            + (QueuePagerVisible ? QueueCardGap + QueuePagerSize : 0);
+            return new Size(Math.Max(main.Width, StackWidth()), height);
         }
 
         return main;
     }
 
-    /// <summary>展开队列渲染的列数：每列 <see cref="QueueCardsPerColumn"/> 张，放满换到右边一列。</summary>
-    private static int QueueColumnCount(int count)
-        => (count + QueueCardsPerColumn - 1) / QueueCardsPerColumn;
+    /// <summary>展开队列里还有没显示出来的活动 → 末尾要挂一个翻页按钮（_live 含主岛，所以 +1）。</summary>
+    private bool QueuePagerVisible => _live.Count > QueueVisibleCards + 1;
 
-    /// <summary>展开队列的列高（行数）：最多 <see cref="QueueCardsPerColumn"/> 行。</summary>
-    private static int QueueRowCount(int count)
-        => Math.Min(count, QueueCardsPerColumn);
+    /// <summary>
+    /// 展开队列要渲染的条目（从岛侧到远端）：前 <see cref="QueueVisibleCards"/> - 1 条固定，
+    /// 最后一条是翻页位 —— 队列表更长时，它在剩余活动里循环（见 <see cref="PageQueueTail"/>）。
+    /// </summary>
+    private IReadOnlyList<(string Owner, IslandLiveContent Content)> QueueDisplayItems()
+    {
+        var queue = QueueItems;
+        int q = queue.Count;
+        int shown = Math.Min(q, QueueVisibleCards);
+        var list = new List<(string, IslandLiveContent)>(shown);
+        for (int i = 0; i < shown - 1; i++) list.Add(queue[i]);
+        if (shown > 0) list.Add(queue[q > QueueVisibleCards ? ClampedTailIndex(q) : shown - 1]);
+        return list;
+    }
+
+    /// <summary>翻页位下标夹到合法范围：永不低于默认位，队列表变短时退到最后一条。</summary>
+    private int ClampedTailIndex(int queueCount)
+        => Math.Clamp(_tailIndex, QueueVisibleCards - 1, Math.Max(QueueVisibleCards - 1, queueCount - 1));
+
+    /// <summary>收起岛体时翻页位回到默认：重新展开从队列第 <see cref="QueueVisibleCards"/> 条看起。</summary>
+    private void ResetQueuePager() => _tailIndex = QueueVisibleCards - 1;
 
     /// <summary>展开态主岛尺寸：高度由活动自己决定，宽度统一到栈宽（与卡片边缘对齐）。</summary>
     private Size ExpandedMainSize()
@@ -671,15 +710,16 @@ public sealed partial class IslandWindow : Window
         return width;
     }
 
-    /// <summary>队列卡片的统一高度：取展示出来的卡片里最高的一张，保证每张卡片一样大（跨列也一样）。</summary>
+    /// <summary>
+    /// 队列卡片的统一高度：取**所有**队列活动里最高的一张 —— 翻页位可能轮到任何一个活动，
+    /// 只看当前展示的几张会让翻页时卡片高度（进而窗口几何）跟着变。
+    /// </summary>
     private double QueueCardHeight()
     {
-        var queue = QueueItems;
-        int count = Math.Min(queue.Count, MaxQueueCards);
         double height = 0;
-        for (int i = 0; i < count; i++)
+        foreach (var (_, content) in QueueItems)
         {
-            height = Math.Max(height, queue[i].Content.ExpandedSize.Height);
+            height = Math.Max(height, content.ExpandedSize.Height);
         }
         return height > 0 ? height : IdleSize.Height;
     }
@@ -750,6 +790,7 @@ public sealed partial class IslandWindow : Window
             // 没有活动内容了，常驻展开没有意义：留着它会让下一个注册的插件凭空自动展开
             ClearTouchExpand();
             TeardownQueue();
+            ResetQueuePager();
             SwapContent(_idleContent, animate: true);
             AnimateIslandSize(IdleSize, CollapseDuration);
             ApplyCornerRadius(IdleSize.Height, expanded: false);
@@ -775,6 +816,7 @@ public sealed partial class IslandWindow : Window
             {
                 _expanded = false;
                 TeardownQueue();
+                ResetQueuePager();
                 Size compact = CompactSizeOf(live);
                 AnimateIslandSize(compact, CollapseDuration);
                 ApplyCornerRadius(compact.Height, expanded: false);
@@ -795,6 +837,7 @@ public sealed partial class IslandWindow : Window
             {
                 _expanded = false;
                 TeardownQueue();
+                ResetQueuePager();
                 SwapContent(live.CompactContent ?? _idleContent, animate: true);
                 Size compact = CompactSizeOf(live);
                 AnimateIslandSize(compact, CollapseDuration);
@@ -803,14 +846,17 @@ public sealed partial class IslandWindow : Window
         }
     }
 
-    /// <summary>构建队列：每个队列活动一张卡片，所有卡片统一尺寸（同宽同高），一列放满就换到右边一列。</summary>
+    /// <summary>
+    /// 构建队列：单列。前 <see cref="QueueVisibleCards"/> - 1 条固定，最后一张是翻页位；
+    /// 队列还有没显示出来的活动，就在末尾挂一个翻页按钮（<see cref="PageQueueTail"/>）。
+    /// </summary>
     private void BuildQueue()
     {
         // 活动顺序可能刚变过（优先级调整）：先按各自记录的视图安全拆掉旧卡片，再重建
         TeardownQueue();
 
-        var queue = QueueItems;
-        if (queue.Count == 0)
+        var items = QueueDisplayItems();
+        if (items.Count == 0)
         {
             QueuePanel.Visibility = Visibility.Collapsed;
             UpdateHitRegion(force: true);
@@ -819,93 +865,239 @@ public sealed partial class IslandWindow : Window
 
         double cardWidth = StackWidth();
         double cardHeight = QueueCardHeight();
+        bool pager = QueuePagerVisible;
+        int rows = items.Count + (pager ? 1 : 0);
 
-        int count = Math.Min(queue.Count, MaxQueueCards);
-        int columns = QueueColumnCount(count);
-
-        // 队列网格：行数固定为列高，列数按当前卡片数一次性给足（旧卡片已在 TeardownQueue 里清空）
+        // 行定义按实际需要一次性给足（旧卡片已在 TeardownQueue 里清空）：
+        // 少一行会漏掉行间距，多一行会让空行的间距挤进总高度（总尺寸算的是 rows - 1 个间距）。
         QueuePanel.RowSpacing = QueueCardGap;
-        QueuePanel.ColumnSpacing = QueueCardGap;
         QueuePanel.RowDefinitions.Clear();
-        for (int r = 0; r < QueueCardsPerColumn; r++)
+        for (int r = 0; r < rows; r++)
         {
             QueuePanel.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
         }
-        QueuePanel.ColumnDefinitions.Clear();
-        for (int c = 0; c < columns; c++)
+
+        for (int i = 0; i < items.Count; i++)
         {
-            QueuePanel.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+            var item = items[i];
+            var surface = CreateQueueCard(item.Owner, item.Content, cardWidth, cardHeight);
+            // 自下而上（底部模式）/ 自上而下（顶部模式）填：最先入队的活动永远离岛体最近
+            Grid.SetRow(surface.Border, _bottomAnchored ? rows - 1 - i : i);
+            PlaceQueueCard(surface);
+            // 列表最后一张就是翻页位（队列表更长时它才会被按钮换掉）
+            if (i == items.Count - 1) _tailSurface = surface;
         }
 
-        for (int i = 0; i < count; i++)
+        if (pager)
         {
-            var item = queue[i];
-            var content = item.Content;
-
-            UIElement inner;
-            if (content.MorphView != null)
-            {
-                inner = content.MorphView.View;
-            }
-            else
-            {
-                inner = content.ExpandedContent ?? content.CompactContent ?? BuildFallbackLabel(item.Owner, content);
-            }
-
-            var surface = CreateCardSurface();
-            surface.Owner = item.Owner;
-            surface.MorphView = content.MorphView;
-            surface.Border.Width = cardWidth;
-            surface.Border.Height = cardHeight;
-            surface.ApplyStyle(_style, _materialApplied, _light);
-            surface.SetRadius(IslandStyle.ResolveQueueRadius(_style, cardHeight));
-            surface.SetContent(inner);
-
-            // 队列卡片也是"那个插件的岛"：点它要触发它自己的 OnTap（通常就是打开它的聚光卡）。
-            // 以前只有主岛接了点击，导致排在后面的插件永远打不开自己的超大卡。
-            var tapped = content.OnTap;
-            if (tapped != null)
-            {
-                string owner = item.Owner;
-                surface.Border.Tag = owner;      // 便于排错时看清是哪张卡
-                surface.Border.Tapped += (_, e) =>
-                {
-                    // 卡片里的按钮/滑块自己处理点击，不算"点了卡片"
-                    if (IsInteractiveSource(e.OriginalSource)) return;
-                    e.Handled = true;
-                    try
-                    {
-                        tapped();
-                    }
-                    catch (Exception ex)
-                    {
-                        _log.Error($"插件「{owner}」的点击回调抛异常（已忽略）", ex);
-                    }
-                };
-            }
-
-            // 列内自下而上（底部模式）/ 自上而下（顶部模式）填：最先入队的活动永远离岛体最近
-            int column = i / QueueCardsPerColumn;
-            int slot = i % QueueCardsPerColumn;
-            int inColumn = Math.Min(QueueCardsPerColumn, count - column * QueueCardsPerColumn);
-            Grid.SetColumn(surface.Border, column);
-            Grid.SetRow(surface.Border, _bottomAnchored ? inColumn - 1 - slot : slot);
-
-            QueuePanel.Children.Add(surface.Border);
-            _queueSurfaces.Add(surface);
-
-            // 动画必须在视图进入可视树之后再启动（否则插件视图可能在未加载状态下执行属性路径动画而失败）
-            AnimateMorphView(item.Owner, content.MorphView, expand: true);
+            _pager = BuildQueuePager();
+            // 按钮在最后一张卡的外侧：顶部模式在下面（最后一行），底部模式在上面（第一行）
+            Grid.SetRow(_pager.Border, _bottomAnchored ? 0 : rows - 1);
+            QueuePanel.Children.Add(_pager.Border);
         }
 
         QueuePanel.Visibility = Visibility.Visible;
         UpdateHitRegion(force: true);
     }
 
+    /// <summary>建一张队列卡片：与主岛同款表面 + 该活动的展开内容 + 它自己的点击回调。</summary>
+    private IslandSurface CreateQueueCard(string owner, IslandLiveContent content, double width, double height)
+    {
+        UIElement inner;
+        if (content.MorphView != null)
+        {
+            inner = content.MorphView.View;
+        }
+        else
+        {
+            inner = content.ExpandedContent ?? content.CompactContent ?? BuildFallbackLabel(owner, content);
+        }
+
+        var surface = CreateCardSurface();
+        surface.Owner = owner;
+        surface.MorphView = content.MorphView;
+        surface.Border.Width = width;
+        surface.Border.Height = height;
+        surface.ApplyStyle(_style, _materialApplied, _light);
+        surface.SetRadius(IslandStyle.ResolveQueueRadius(_style, height));
+        surface.SetContent(inner);
+
+        // 队列卡片也是"那个插件的岛"：点它要触发它自己的 OnTap（通常就是打开它的聚光卡）。
+        // 以前只有主岛接了点击，导致排在后面的插件永远打不开自己的超大卡。
+        var tapped = content.OnTap;
+        if (tapped != null)
+        {
+            surface.Border.Tag = owner;      // 便于排错时看清是哪张卡
+            surface.Border.Tapped += (_, e) =>
+            {
+                // 卡片里的按钮/滑块自己处理点击，不算"点了卡片"
+                if (IsInteractiveSource(e.OriginalSource)) return;
+                e.Handled = true;
+                try
+                {
+                    tapped();
+                }
+                catch (Exception ex)
+                {
+                    _log.Error($"插件「{owner}」的点击回调抛异常（已忽略）", ex);
+                }
+            };
+        }
+
+        return surface;
+    }
+
+    /// <summary>
+    /// 把卡片放进面板。形态动画必须在视图进入可视树之后再启动
+    /// （否则插件视图可能在未加载状态下执行属性路径动画而失败）。
+    /// </summary>
+    private void PlaceQueueCard(IslandSurface surface)
+    {
+        QueuePanel.Children.Add(surface.Border);
+        _queueSurfaces.Add(surface);
+        AnimateMorphView(surface.Owner ?? "(未知)", surface.MorphView, expand: true);
+    }
+
+    /// <summary>建翻页按钮：箭头指向远端，也就是「下一张从哪边来」。</summary>
+    private QueuePager BuildQueuePager()
+    {
+        var pager = new QueuePager(
+            QueuePagerSize,
+            _bottomAnchored ? QueuePagerGlyphUp : QueuePagerGlyphDown,
+            (_, _) => PageQueueTail());
+        pager.ApplyStyle(_style, _materialApplied, _light);
+        return pager;
+    }
+
+    /// <summary>
+    /// 翻页：只把最后一张卡（翻页位）换成队列里的下一条隐藏活动，到末尾回卷到默认位 ——
+    /// 主岛与前面几张固定不动。全程只动 Opacity 与内容层的缩放（组合级，且恒不越出卡片矩形），
+    /// 所以窗口几何、点击形状都不用跟着走，也不会出现被裁掉的一条或白边。
+    /// </summary>
+    private void PageQueueTail()
+    {
+        if (_tempContent != null || _dropping || !_expanded) return;
+
+        var queue = QueueItems;
+        int q = queue.Count;
+        if (q <= QueueVisibleCards) return;               // 没有隐藏项（按钮本不该在）
+
+        FinishQueuePage();                                 // 连点：先把上一页收尾
+
+        int hidden = q - (QueueVisibleCards - 1);
+        int tail = (QueueVisibleCards - 1) + ((ClampedTailIndex(q) - (QueueVisibleCards - 1) + 1) % hidden);
+        var item = queue[tail];
+
+        var outgoing = _tailSurface;
+        int tailRow = outgoing != null
+            ? Grid.GetRow(outgoing.Border)
+            : (_bottomAnchored ? 1 : Math.Max(0, QueuePanel.RowDefinitions.Count - 2));
+
+        var incoming = CreateQueueCard(item.Owner, item.Content, StackWidth(), QueueCardHeight());
+        incoming.Border.Opacity = 0;
+        incoming.ContentScale.ScaleX = incoming.ContentScale.ScaleY = PageEnterScale;
+        Grid.SetRow(incoming.Border, tailRow);
+        PlaceQueueCard(incoming);
+
+        AnimateMorphView(outgoing?.Owner ?? "(未知)", outgoing?.MorphView, expand: false);
+        _pageOutgoing = outgoing;
+        _tailSurface = incoming;
+        _tailIndex = tail;
+
+        var sb = new Storyboard();
+        if (outgoing != null)
+        {
+            AddFadeAnim(sb, outgoing.Border, 1, 0, PageOutDuration, TimeSpan.Zero);
+            AddScaleAnims(sb, outgoing.ContentScale, 1, PageEnterScale, PageOutDuration, TimeSpan.Zero);
+        }
+        AddFadeAnim(sb, incoming.Border, 0, 1, PageInDuration, PageInDelay);
+        AddScaleAnims(sb, incoming.ContentScale, PageEnterScale, 1, PageInDuration, PageInDelay);
+
+        var version = ++_pageAnimVersion;
+        sb.Completed += (_, _) =>
+        {
+            if (version != _pageAnimVersion) return;
+            _pageAnim = null;
+            DropPagedOutCard();
+            incoming.Border.Opacity = 1;
+            incoming.ContentScale.ScaleX = incoming.ContentScale.ScaleY = 1;
+            UpdateHitRegion();
+        };
+        _pageAnim = sb;
+        sb.Begin();
+    }
+
+    /// <summary>
+    /// 翻页动画收尾（连点或拆卸时调用）：停动画、该退场的旧卡立刻拿掉、
+    /// 翻页位落回静止状态（动画是 HoldEnd 的，停掉之后必须把静止值写回去）。
+    /// </summary>
+    private void FinishQueuePage()
+    {
+        if (_pageAnim == null && _pageOutgoing == null) return;
+        _pageAnimVersion++;                    // 先作废在跑的动画，再停它
+        _pageAnim?.Stop();
+        _pageAnim = null;
+        DropPagedOutCard();
+        if (_tailSurface != null)
+        {
+            _tailSurface.Border.Opacity = 1;
+            _tailSurface.ContentScale.ScaleX = _tailSurface.ContentScale.ScaleY = 1;
+        }
+    }
+
+    /// <summary>把正在退场的旧卡从面板与账本里清掉（断开与插件视图的引用）。</summary>
+    private void DropPagedOutCard()
+    {
+        var outgoing = _pageOutgoing;
+        if (outgoing == null) return;
+        _pageOutgoing = null;
+        outgoing.SetContent(null);
+        QueuePanel.Children.Remove(outgoing.Border);
+        _queueSurfaces.Remove(outgoing);
+    }
+
+    private void AddFadeAnim(Storyboard sb, DependencyObject target, double from, double to, TimeSpan duration, TimeSpan begin)
+    {
+        var anim = new DoubleAnimation
+        {
+            From = from,
+            To = to,
+            Duration = new Duration(duration),
+            BeginTime = begin,
+            EasingFunction = new CubicEase { EasingMode = EasingMode.EaseOut },
+        };
+        Storyboard.SetTarget(anim, target);
+        Storyboard.SetTargetProperty(anim, "Opacity");
+        sb.Children.Add(anim);
+    }
+
+    /// <summary>内容层缩放：两个轴各一条（组合级；只缩不放，所以永远不会越出卡片矩形）。</summary>
+    private void AddScaleAnims(Storyboard sb, ScaleTransform target, double from, double to, TimeSpan duration, TimeSpan begin)
+    {
+        foreach (var property in ScaleProperties)
+        {
+            var anim = new DoubleAnimation
+            {
+                From = from,
+                To = to,
+                Duration = new Duration(duration),
+                BeginTime = begin,
+                EasingFunction = new CubicEase { EasingMode = EasingMode.EaseOut },
+            };
+            Storyboard.SetTarget(anim, target);
+            Storyboard.SetTargetProperty(anim, property);
+            sb.Children.Add(anim);
+        }
+    }
+
     /// <summary>安全拆卸队列：先停止各卡片的形态动画，把 MorphView.View 从卡片中取出，
-    /// 确保它回到 ContentHost 的掌控，最后清空 QueuePanel。</summary>
+    /// 确保它回到 ContentHost 的掌控，最后清空 QueuePanel（翻页按钮也一并清掉）。</summary>
     private void TeardownQueue()
     {
+        FinishQueuePage();
+        _pager = null;
+        _tailSurface = null;
+
         if (_queueSurfaces.Count == 0)
         {
             QueuePanel.Visibility = Visibility.Collapsed;
@@ -1054,6 +1246,7 @@ public sealed partial class IslandWindow : Window
 
         // 先安全拆卸队列（停止动画 + 断开 Border.Child + 把主 View 放回 ContentHost）
         TeardownQueue();
+        ResetQueuePager();
 
         _expanded = false;
 
@@ -1815,6 +2008,8 @@ public sealed partial class IslandWindow : Window
     /// 把岛屿的「真实布局形状」写入窗口形状（SetWindowRgn）：形状之外不绘制也不参与命中测试，
     /// 透明画布区域的点击/触摸因此会真正落到下层窗口（跨进程有效）。
     /// 形状按岛体的圆角生成 —— 若用矩形近似，圆角外侧那几块像素会被窗口表面填充成白色实块。
+    /// 形状还要比岛体渲染范围外扩一圈（见 <see cref="ShapeSlackDip"/>）：贴着渲染边缘的形状
+    /// 会把圆角的抗锯齿和 1px 描边切成硬阶梯，那才是肉眼看到的锯齿。
     /// 必须跟随尺寸动画逐帧更新，且绝不能为空：没有形状时整块画布都会拦截点击。
     /// </summary>
     private void UpdateHitRegion(bool force = false)
@@ -1824,12 +2019,12 @@ public sealed partial class IslandWindow : Window
         if (_windowPhysW <= 0 || _windowPhysH <= 0) return;
 
         var s = Scale;
-        var rects = new List<ShapeRect>(MaxQueueCards + 1);
+        var rects = new List<ShapeRect>(QueueVisibleCards + 2);
 
-        // 主岛（空闲 / 活动 / 临时消息都走这里）：形状必须与岛体「当前渲染尺寸」严格一致。
+        // 主岛（空闲 / 活动 / 临时消息都走这里）：形状必须跟随岛体「当前渲染尺寸」。
         // 绝不能取动画目标尺寸 —— 目标比内容多出来的那一圈会落进形状里，
         // 由窗口表面填成不透明白色，切换瞬间就会闪白块。
-        rects.Add(MainIslandShapeRect(s));
+        rects.Add(GrowShape(MainIslandShapeRect(s), s));
 
         // 队列小岛：各子元素的实际布局矩形与圆角（DIP → 物理）
         foreach (var child in QueuePanel.Children)
@@ -1839,10 +2034,10 @@ public sealed partial class IslandWindow : Window
 
             var box = card.TransformToVisual(RootGrid)
                           .TransformBounds(new Rect(0, 0, card.ActualWidth, card.ActualHeight));
-            rects.Add(new ShapeRect(
+            rects.Add(GrowShape(new ShapeRect(
                 (int)Math.Round(box.X * s), (int)Math.Round(box.Y * s),
                 (int)Math.Round((box.X + box.Width) * s), (int)Math.Round((box.Y + box.Height) * s),
-                (int)Math.Round(card.CornerRadius.TopLeft * s)));
+                (int)Math.Round(card.CornerRadius.TopLeft * s)), s));
         }
 
         if (rects.Count == 0 || (!force && SameRects(_hitRects, rects))) return;
@@ -1875,6 +2070,31 @@ public sealed partial class IslandWindow : Window
             Win32.DeleteRegion(next);
         }
         return first;
+    }
+
+    /// <summary>
+    /// 窗口形状相对岛体渲染边缘的外扩量（DIP，且至少 2 物理像素）。
+    ///
+    /// 形状是 1-bit 掩码，边界必然是硬阶梯；而岛体的圆角与 1px 描边是抗锯齿渲染的。
+    /// 两者一旦重合，掩码就会把圆角的过渡像素和描边整条切掉 —— 屏幕上就是肉眼可见的锯齿
+    /// （取整还会让不同边被切的程度不一样，有的边好、有的边碎）。外扩之后硬边界落到岛体渲染
+    /// 范围**之外**：那里没有内容，形状边界不再可见，轮廓交回给 XAML 自己画的抗锯齿圆角。
+    ///
+    /// 取值依据：抗锯齿过渡约 1 物理像素，GDI 掩码相对理想圆弧最多内缩 0.5 像素，
+    /// 布局矩形取整再占 0.5 像素 —— 2 物理像素刚好够，再大只是让下面那圈更宽。
+    ///
+    /// 代价：Fluent + 系统材质时，这圈形状里只有材质、没有岛体压的那层纱，会比岛体略亮，
+    /// 在很暗的桌面上能看出一条 1~2px 的浅边（Apple 与材质不可用时这圈是透明的，没有此现象）。
+    /// 这是「窗口级材质」与「平滑轮廓」之间无法两全的取舍：材质铺满整个形状，
+    /// 形状边界只要可见，它就一定是硬阶梯。宁可留这圈浅边，也不要被切碎的描边。
+    /// </summary>
+    private const double ShapeSlackDip = 1;
+
+    /// <summary>按外扩量放大形状矩形（圆角半径同增，弧线与岛体保持同心）。</summary>
+    private static ShapeRect GrowShape(ShapeRect r, double scale)
+    {
+        int slack = Math.Max(2, (int)Math.Ceiling(ShapeSlackDip * scale));
+        return new ShapeRect(r.X1 - slack, r.Y1 - slack, r.X2 + slack, r.Y2 + slack, r.Radius + slack);
     }
 
     /// <summary>形状用矩形（物理像素）：X1,Y1,X2,Y2 为外接矩形，Radius 为圆角半径。</summary>
@@ -2847,14 +3067,24 @@ public sealed partial class IslandWindow : Window
             _content = content;
         }
 
-        /// <summary>独立卡片：Border 与内容宿主自己搭起来（主岛的两个元素来自 XAML）。</summary>
+        /// <summary>
+        /// 独立卡片：Border 与内容宿主自己搭起来（主岛的两个元素来自 XAML）。
+        /// 内容层的缩放变换是给翻页动画用的（只动内容、不动卡片矩形，所以点击形状不受影响）——
+        /// 只有卡片有它，主岛那个 ContentHost 的变换归内容交接（<c>_contentSlide</c>）所有。
+        /// </summary>
         public static IslandSurface CreateCard()
         {
             var content = new ContentPresenter();
-            return new IslandSurface(new Border { Child = content }, content);
+            var surface = new IslandSurface(new Border { Child = content }, content);
+            content.RenderTransform = surface.ContentScale;
+            content.RenderTransformOrigin = new Point(0.5, 0.5);
+            return surface;
         }
 
         public Border Border { get; }
+
+        /// <summary>卡片内容层的缩放（翻页时的进出微缩放）。</summary>
+        public ScaleTransform ContentScale { get; } = new();
 
         /// <summary>卡片对应的活动：拆卸时按这个记录停止形态动画，顺序变化也安全。</summary>
         public string? Owner { get; set; }
@@ -2873,6 +3103,63 @@ public sealed partial class IslandWindow : Window
         public void SetRadius(double radius) => Border.CornerRadius = new CornerRadius(radius);
 
         public void SetContent(UIElement? content) => _content.Content = content;
+    }
+
+    /// <summary>
+    /// 队列翻页按钮：圆形外壳（<see cref="Border"/>，走和卡片同一套点击形状与配色通道）
+    /// 加一枚内嵌的原生 <see cref="Button"/> —— 交互与悬停/按下态交给控件模板自己的主题态，不手搓。
+    /// </summary>
+    private sealed class QueuePager
+    {
+        private readonly FontIcon _glyph;
+
+        public QueuePager(double size, string glyph, RoutedEventHandler clicked)
+        {
+            _glyph = new FontIcon
+            {
+                Glyph = glyph,
+                FontSize = 13,
+                HorizontalAlignment = HorizontalAlignment.Center,
+                VerticalAlignment = VerticalAlignment.Center,
+            };
+
+            var button = new Button
+            {
+                Width = size - 2,
+                Height = size - 2,
+                Padding = new Thickness(0),
+                MinWidth = 0,
+                MinHeight = 0,
+                IsTabStop = false,
+                Background = new SolidColorBrush(Microsoft.UI.Colors.Transparent),
+                BorderThickness = new Thickness(0),
+                CornerRadius = new CornerRadius(size / 2 - 1),
+                Content = _glyph,
+            };
+            button.Click += clicked;
+
+            Border = new Border
+            {
+                Width = size,
+                Height = size,
+                // 正圆：不走卡片那套 ResolveQueueRadius（那是给矩形卡片用的）
+                CornerRadius = new CornerRadius(size / 2),
+                Child = button,
+            };
+            ToolTipService.SetToolTip(Border, "下一个活动");
+        }
+
+        /// <summary>面板里的那个 Border：点击形状按它的矩形与圆角生成。</summary>
+        public Border Border { get; }
+
+        public void ApplyStyle(IslandStyleKind style, bool materialApplied, bool light)
+        {
+            var stroke = IslandStyle.CreateStroke(style, light);
+            Border.Background = IslandStyle.CreateSurfaceFill(style, materialApplied, light);
+            Border.BorderBrush = stroke;
+            Border.BorderThickness = stroke == null ? new Thickness(0) : new Thickness(1);
+            _glyph.Foreground = IslandStyle.CreateMessageTextBrush(light);
+        }
     }
 
     #endregion

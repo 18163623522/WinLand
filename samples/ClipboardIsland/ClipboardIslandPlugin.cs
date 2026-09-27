@@ -84,7 +84,7 @@ public sealed class ClipboardIslandPlugin : IslandPluginBase
         Context.Register(new ActionDisposable(() => _history.Changed -= OnHistoryChanged));
         Context.Register(new ActionDisposable(() => _stopped = true));
 
-        _view = new ClipboardIslandView(Manifest, Activate, Theme);
+        _view = new ClipboardIslandView(Manifest, Activate, DeleteItem, Theme);
         _view.Apply(_history.Items);
         // 岛体换主题（Fluent 跟随系统明暗）：代码搭的视图颜色烘在画刷里，就地重刷一遍
         Context.Theme.Changed += OnThemeChanged;
@@ -163,8 +163,32 @@ public sealed class ClipboardIslandPlugin : IslandPluginBase
     {
         var removed = _history.Count;
         _history.Clear();
+
+        // 聚光卡是另一棵树，历史变了它不会自己刷新；开着的话就地重铺一次
+        _spotlight?.Refresh(_history.Items);
+
         Log.Info($"已清空剪贴板历史（{removed} 条）");
         return removed;
+    }
+
+    /// <summary>
+    /// 删掉一条历史（在行上往右滑）。
+    ///
+    /// 注意这里**不能**顺手往剪贴板里写东西：用户是在挑要删的东西，
+    /// 剪贴板一被改写，正在输入的程序可能就被塞了旧内容。
+    /// </summary>
+    public void DeleteItem(ClipItem item)
+    {
+        if (!_history.Remove(item))
+        {
+            Log.Debug($"要删除的记录已经不在历史里了（忽略）：{item.Id}");
+            return;
+        }
+
+        // 聚光卡是另一棵树，历史变了它不会自己刷新；开着的话就地重铺一次
+        // （保留滚动位置，连删几条时不会被弹回顶部）
+        _spotlight?.Refresh(_history.Items, keepScroll: true);
+        Log.Info($"已删除一条历史（右滑）：{item.Summary}");
     }
 
     /// <summary>设置页里的「试一下」：按当前开关预览一次复制反馈（没记录就用示例文本）。</summary>
@@ -397,7 +421,7 @@ public sealed class ClipboardIslandPlugin : IslandPluginBase
     /// </summary>
     private void OpenSpotlight()
     {
-        _spotlight ??= new ClipboardSpotlightView(Manifest, Activate, () => ClearHistory(), Theme);
+        _spotlight ??= new ClipboardSpotlightView(Manifest, Activate, () => ClearHistory(), DeleteItem, Theme);
         _spotlight.Refresh(_history.Items);
 
         Context.Island.OpenSpotlight(new IslandSpotlight

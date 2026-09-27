@@ -187,32 +187,24 @@ public sealed class ScopedIslandSurface : IIslandSurface
 
     private string ScopedPageId(string pageId) => $"{_owner.Info.Id}/{pageId}";
 
-    private IslandLiveContent Guard(IslandLiveContent content) => new()
+    /// <summary>
+    /// 复制一份常驻内容：插件之后改自己那份对象不再影响宿主，回调统一包进守卫。
+    /// 用 <c>with</c> 整体复制（SDK 里是 record）——之后新增属性会自动带上，不会再像手抄字段那样漏。
+    /// </summary>
+    private IslandLiveContent Guard(IslandLiveContent content) => content with
     {
-        Priority = content.Priority,
-        OwnerLabel = content.OwnerLabel,
-        OwnerGlyph = content.OwnerGlyph,
-        OwnerAccent = content.OwnerAccent,
-        MorphView = content.MorphView,
-        CompactContent = content.CompactContent,
-        ExpandedContent = content.ExpandedContent,
-        CompactSize = content.CompactSize,
-        ExpandedSize = content.ExpandedSize,
         OnTap = content.OnTap == null ? null : () => _owner.InvokeGuarded("点击回调", content.OnTap),
     };
 
     /// <summary>
     /// 复制一份投放目标：插件之后改自己那份对象不再影响宿主，
-    /// 回调统一包进异步守卫（投放动作可能 await）。扩展名列表也复制，避免插件改了它以后宿主读到半截。
+    /// 回调统一包进异步守卫（投放动作可能 await），扩展名列表复制一份（避免插件改了它以后宿主读到半截）。
+    /// 复制必须走 <c>with</c> 整体拷贝：**只能覆盖 <c>Handler</c> 与 <c>Extensions</c>** ——
+    /// 曾经按字段手抄漏掉了 <see cref="IslandDropTarget.Kinds"/>，插件声明的 Text / Image
+    /// 被静默降级成默认的 Files（表现与声明相反），别改回逐字段构造。
     /// </summary>
-    private IslandDropTarget Guard(IslandDropTarget target) => new()
+    private IslandDropTarget Guard(IslandDropTarget target) => target with
     {
-        Id = target.Id,
-        Title = target.Title,
-        Glyph = target.Glyph,
-        Hint = target.Hint,
-        AccentColor = target.AccentColor,
-        Order = target.Order,
         Extensions = target.Extensions?.ToArray(),
         Handler = ctx => _owner.InvokeGuardedAsync("投放回调", () => target.Handler(ctx)),
     };

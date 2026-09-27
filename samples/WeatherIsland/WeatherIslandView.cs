@@ -37,6 +37,11 @@ public sealed class WeatherIslandView : UserControl, IMorphView
     private readonly TextBlock _place;
     private readonly ForecastCell[] _cells = new ForecastCell[ForecastDays];
 
+    /// <summary>最近一次铺上的天气代码与昼夜。图标填充色烘在画刷里，主题一变只能按新配色重画，
+    /// 所以要留着这两个值，否则换主题后图标会留在旧主题的颜色上。</summary>
+    private int _code = -1;
+    private bool _isDay = true;
+
     private readonly DispatcherQueueTimer? _morphTimer;
     private DateTimeOffset _morphStart;
     private TimeSpan _morphDuration = TimeSpan.FromMilliseconds(333);
@@ -145,9 +150,12 @@ public sealed class WeatherIslandView : UserControl, IMorphView
             ? WeatherCodes.Describe(snapshot.Code)
             : error.Length > 8 ? "获取失败" : error;
 
+        _code = hasData ? snapshot.Code : -1;
+        _isDay = snapshot.IsDay;
+        _icon.Child = WeatherIcon.Create(_code, _isDay, _theme.IsLight);
+
         if (hasData)
         {
-            _icon.Child = WeatherIcon.Create(snapshot.Code, snapshot.IsDay);
             _place.Text = $"{snapshot.Place} · {snapshot.UpdatedAt:HH:mm} 更新";
         }
         else
@@ -162,14 +170,14 @@ public sealed class WeatherIslandView : UserControl, IMorphView
             if (day is null)
             {
                 cell.Label.Text = DefaultLabels[i];
-                cell.Icon.Child = WeatherIcon.Create(-1);
+                cell.ShowIcon(-1, _theme.IsLight);
                 cell.High.Text = "--";
                 cell.Low.Text = "/--";
                 continue;
             }
 
             cell.Label.Text = day.Label;
-            cell.Icon.Child = WeatherIcon.Create(day.Code);
+            cell.ShowIcon(day.Code, _theme.IsLight);
             cell.High.Text = $"{day.Max:0}°";
             cell.Low.Text = $"/{day.Min:0}°";
         }
@@ -264,9 +272,12 @@ public sealed class WeatherIslandView : UserControl, IMorphView
         _condition.Foreground = Hint(180);
         _place.Foreground = Hint(150);
 
+        // 图标同理：填充色是烘死的，只能按新配色重画一枚
+        _icon.Child = WeatherIcon.Create(_code, _isDay, _theme.IsLight);
+
         foreach (var cell in _cells)
         {
-            cell?.RefreshTheme(Hint(150), Hint(255));
+            cell?.RefreshTheme(Hint(150), Hint(255), _theme.IsLight);
         }
     }
 
@@ -332,12 +343,23 @@ public sealed class WeatherIslandView : UserControl, IMorphView
             Root.Children.Add(row);
         }
 
-        /// <summary>岛体换主题：重刷这一列的三个中性色。</summary>
-        public void RefreshTheme(Brush hint, Brush strong)
+        /// <summary>岛体换主题：重刷这一列的三个中性色，并按新配色重画图标。</summary>
+        public void RefreshTheme(Brush hint, Brush strong, bool lightIsland)
         {
             Label.Foreground = hint;
             High.Foreground = strong;
             Low.Foreground = hint;
+            Icon.Child = WeatherIcon.Create(_code, true, lightIsland);
         }
+
+        /// <summary>换图标：天气代码记下来，换主题时要照着它重画。</summary>
+        public void ShowIcon(int code, bool lightIsland)
+        {
+            _code = code;
+            Icon.Child = WeatherIcon.Create(code, true, lightIsland);
+        }
+
+        /// <summary>最近一次铺上的天气代码（-1 = 还没有数据）。</summary>
+        private int _code = -1;
     }
 }

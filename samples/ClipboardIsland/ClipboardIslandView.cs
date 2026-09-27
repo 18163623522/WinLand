@@ -22,11 +22,15 @@ namespace ClipboardIsland;
 ///
 /// 展开态的那 3 行是**可点击**的：点一条就把这条重新复制并粘回用户当前输入的窗口。
 /// 行自己吃掉 Tapped，所以点行不会连带把聚光卡弹出来；点岛体的其他位置才是开聚光卡。
+/// 那 3 行同样可以**右滑删除**（往右拖过 64 DIP 松手，行滑出去消失）。
 /// </summary>
 public sealed class ClipboardIslandView : UserControl, IMorphView
 {
     /// <summary>点展开态某一行时的回调（复制 + 粘贴）。</summary>
     private readonly Action<ClipItem> _onPick;
+
+    /// <summary>右滑某一行时的回调（删掉这一条）。</summary>
+    private readonly Action<ClipItem> _onDelete;
 
     private const double CompactLeading = 24;
     private const double ExpandedLeading = 28;
@@ -82,9 +86,10 @@ public sealed class ClipboardIslandView : UserControl, IMorphView
 
     private string? _loadedThumbId;
 
-    public ClipboardIslandView(PluginManifest manifest, Action<ClipItem> onPick, IIslandTheme theme)
+    public ClipboardIslandView(PluginManifest manifest, Action<ClipItem> onPick, Action<ClipItem> onDelete, IIslandTheme theme)
     {
         _onPick = onPick;
+        _onDelete = onDelete;
         _theme = theme;
 
         var accent = Windows.UI.Color.FromArgb(255, 0x4C, 0xC2, 0xFF);
@@ -234,14 +239,14 @@ public sealed class ClipboardIslandView : UserControl, IMorphView
         var shown = Math.Min(ExpandedRows, items.Count);
         for (var i = 0; i < shown; i++)
         {
-            _detailRows.Children.Add(new ClipRow(items[i], _theme, interactive: true, invoke: _onPick, dense: true));
+            _detailRows.Children.Add(new ClipRow(items[i], _theme, interactive: true, invoke: _onPick, dense: true, onDelete: _onDelete));
         }
 
         _detailHint.Text = items.Count switch
         {
             0 => "还没有记录 · 复制点什么试试",
-            _ when items.Count > ExpandedRows => $"最近 {shown} 条 · 点一条粘贴 · 点空白看全部 {items.Count} 条",
-            _ => $"共 {items.Count} 条 · 点一条粘贴 · 点空白看全部",
+            _ when items.Count > ExpandedRows => $"最近 {shown}/{items.Count} 条 · 点粘贴 · 右滑删除 · 点空白看全部",
+            _ => $"共 {items.Count} 条 · 点粘贴 · 右滑删除 · 点空白看全部",
         };
 
         ApplyHead(_headItem);
