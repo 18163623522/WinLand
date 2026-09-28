@@ -13,6 +13,9 @@ public sealed partial class GeneralSettingsPage : UserControl
     private const string TopOffsetKey = "island.topOffset";
     private const string BottomOffsetKey = "island.bottomOffset";
     private const string HorizontalOffsetKey = "island.horizontalOffset";
+    private const string HoverExpandKey = "island.hoverExpand";
+    private const string HoverDelayKey = "island.hoverDelay";
+    private const string BounceKey = "island.bounce";
 
     private static readonly string[] HorizontalValues = { "center", "left", "right" };
 
@@ -40,6 +43,10 @@ public sealed partial class GeneralSettingsPage : UserControl
         VisibleToggle.IsOn = _settings.Get("island.visible", true);
         HideIdleToggle.IsOn = _settings.Get("island.hideWhenIdle", false);
         DropToggle.IsOn = _settings.Get("island.dropEnabled", true);
+        HoverExpandToggle.IsOn = _settings.Get(HoverExpandKey, true);
+        HoverDelaySlider.Value = _settings.Get(HoverDelayKey, 0.0);
+        HoverDelaySlider.IsEnabled = HoverExpandToggle.IsOn;
+        BounceToggle.IsOn = _settings.Get(BounceKey, true);
 
         LoadOffsetControl();
         HorizontalOffsetSlider.Value = _settings.Get(HorizontalOffsetKey, 0.0);
@@ -267,6 +274,25 @@ public sealed partial class GeneralSettingsPage : UserControl
     {
         if (_loading) return;
         _settings.Set("island.dropEnabled", DropToggle.IsOn);
+    }
+
+    private void HoverExpandToggle_Toggled(object sender, RoutedEventArgs e)
+    {
+        if (_loading) return;
+        _settings.Set(HoverExpandKey, HoverExpandToggle.IsOn);
+        HoverDelaySlider.IsEnabled = HoverExpandToggle.IsOn;
+    }
+
+    private void HoverDelaySlider_ValueChanged(object sender, RangeBaseValueChangedEventArgs e)
+    {
+        if (_loading) return;
+        _settings.Set(HoverDelayKey, HoverDelaySlider.Value);
+    }
+
+    private void BounceToggle_Toggled(object sender, RoutedEventArgs e)
+    {
+        if (_loading) return;
+        _settings.Set(BounceKey, BounceToggle.IsOn);
     }
 
     private void OffsetSlider_ValueChanged(object sender, RangeBaseValueChangedEventArgs e)

@@ -1,4 +1,5 @@
 using Microsoft.UI.Xaml.Media;
+using Windows.Foundation;
 using Windows.UI;
 using WinIsland.Core;
 
@@ -178,6 +179,36 @@ public static class IslandStyle
     /// <summary>聚光卡描边：两种风格都用 1px 细描边，把卡片从暗化遮罩里"抠"出来。</summary>
     public static SolidColorBrush CreateSpotlightStroke(IslandStyleKind style, bool light)
         => new(Pick(light, SpotlightStrokeDark, SpotlightStrokeLight));
+
+    // ---- Fluent 岛体上缘的 1px 高光（玻璃反光）----
+
+    private static readonly Color TopHighlightDark = Color.FromArgb(28, 255, 255, 255);
+    private static readonly Color TopHighlightLight = Color.FromArgb(72, 255, 255, 255);
+
+    /// <summary>
+    /// Fluent 岛体/卡片上缘的 1px 渐变高光（两端渐隐，圆角处自然收掉，不需要额外裁剪）。
+    /// Apple 不加：它的身份是哑光纯黑胶囊，一道反光会把它读成"玻璃片"。
+    /// </summary>
+    public static LinearGradientBrush? CreateTopHighlight(IslandStyleKind style, bool light)
+    {
+        if (style != IslandStyleKind.Fluent) return null;
+
+        var color = Pick(light, TopHighlightDark, TopHighlightLight);
+        var fade = Color.FromArgb((byte)(color.A * 0.45), color.R, color.G, color.B);
+        var clear = Color.FromArgb(0, color.R, color.G, color.B);
+
+        var brush = new LinearGradientBrush
+        {
+            StartPoint = new Point(0, 0.5),
+            EndPoint = new Point(1, 0.5),
+        };
+        brush.GradientStops.Add(new GradientStop { Color = clear, Offset = 0 });
+        brush.GradientStops.Add(new GradientStop { Color = fade, Offset = 0.14 });
+        brush.GradientStops.Add(new GradientStop { Color = color, Offset = 0.5 });
+        brush.GradientStops.Add(new GradientStop { Color = fade, Offset = 0.86 });
+        brush.GradientStops.Add(new GradientStop { Color = clear, Offset = 1 });
+        return brush;
+    }
 
     // ---- 临时消息（岛体内部的反馈条，不参与点击形状，但圆角与配色必须和岛体同一套规则）----
 

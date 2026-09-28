@@ -32,12 +32,14 @@
                 HorizontalAlignment="Center"
                 Background="#FF000000"
                 CornerRadius="17"
+                DoubleTapped="IslandRoot_DoubleTapped"
                 DragEnter="IslandRoot_DragEnter"
                 DragLeave="IslandRoot_DragLeave"
                 DragOver="IslandRoot_DragOver"
                 Drop="IslandRoot_Drop"
                 PointerEntered="IslandRoot_PointerEntered"
                 PointerExited="IslandRoot_PointerExited"
+                PointerPressed="IslandRoot_PointerPressed"
                 Tapped="IslandRoot_Tapped">
                 <Grid>
                     <ContentPresenter x:Name="ContentHost" />

@@ -96,6 +96,82 @@
                     <ColumnDefinition Width="Auto" />
                 </Grid.ColumnDefinitions>
                 <StackPanel Spacing="2" VerticalAlignment="Center">
+                    <TextBlock Text="悬停展开" />
+                    <TextBlock
+                        Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                        Style="{StaticResource CaptionTextBlockStyle}"
+                        Text="鼠标停在岛上就展开；关掉后改为点击岛体（或触控轻点）展开，点岛外收起"
+                        TextWrapping="Wrap" />
+                </StackPanel>
+                <ToggleSwitch
+                    x:Name="HoverExpandToggle"
+                    Grid.Column="1"
+                    MinWidth="0"
+                    VerticalAlignment="Center"
+                    OffContent=""
+                    OnContent=""
+                    Toggled="HoverExpandToggle_Toggled" />
+            </Grid>
+        </Border>
+
+        <Border Style="{StaticResource SettingsCardStyle}">
+            <Grid ColumnSpacing="16">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="Auto" />
+                </Grid.ColumnDefinitions>
+                <StackPanel Spacing="2" VerticalAlignment="Center">
+                    <TextBlock Text="悬停展开延迟" />
+                    <TextBlock
+                        Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                        Style="{StaticResource CaptionTextBlockStyle}"
+                        Text="鼠标只是从岛边扫过时不展开：停在岛上满这么久才展开 (ms)"
+                        TextWrapping="Wrap" />
+                </StackPanel>
+                <Slider
+                    x:Name="HoverDelaySlider"
+                    Grid.Column="1"
+                    Width="200"
+                    Maximum="600"
+                    Minimum="0"
+                    StepFrequency="50"
+                    VerticalAlignment="Center"
+                    ValueChanged="HoverDelaySlider_ValueChanged" />
+            </Grid>
+        </Border>
+
+        <Border Style="{StaticResource SettingsCardStyle}">
+            <Grid ColumnSpacing="16">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="Auto" />
+                </Grid.ColumnDefinitions>
+                <StackPanel Spacing="2" VerticalAlignment="Center">
+                    <TextBlock Text="展开回弹" />
+                    <TextBlock
+                        Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                        Style="{StaticResource CaptionTextBlockStyle}"
+                        Text="岛体长大/缩小时带回弹（BackEase）；关掉后是干脆的缓出，不会越过目标尺寸"
+                        TextWrapping="Wrap" />
+                </StackPanel>
+                <ToggleSwitch
+                    x:Name="BounceToggle"
+                    Grid.Column="1"
+                    MinWidth="0"
+                    VerticalAlignment="Center"
+                    OffContent=""
+                    OnContent=""
+                    Toggled="BounceToggle_Toggled" />
+            </Grid>
+        </Border>
+
+        <Border Style="{StaticResource SettingsCardStyle}">
+            <Grid ColumnSpacing="16">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="Auto" />
+                </Grid.ColumnDefinitions>
+                <StackPanel Spacing="2" VerticalAlignment="Center">
                     <TextBlock Text="文件投放" />
                     <TextBlock
                         Foreground="{ThemeResource TextFillColorSecondaryBrush}"
