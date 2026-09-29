@@ -62,6 +62,8 @@ public sealed partial class IslandWindow : Window
     private const string TopOffsetKey = "island.topOffset";
     private const string BottomOffsetKey = "island.bottomOffset";
     private const string HorizontalOffsetKey = "island.horizontalOffset";
+    /// <summary>岛锚定到哪块显示器：auto（跟随鼠标所在屏，默认）或某块屏的稳定 id。</summary>
+    private const string DisplayKey = "island.display";
     /// <summary>文件投放总开关（默认开）。关掉后岛对文件拖放完全无感。</summary>
     private const string DropEnabledKey = "island.dropEnabled";
     /// <summary>悬停展开开关（默认开）：关掉后只有点击岛体/触摸才展开。</summary>
@@ -221,6 +223,12 @@ public sealed partial class IslandWindow : Window
     private int _topmostHealCount;
     /// <summary>最近一次定位用的条带水平中心（物理像素），挑「离屏幕中心最近的空闲段」时用。</summary>
     private double _stripCenterX;
+    /// <summary>
+    /// 岛当前锚定到的显示器外框（物理像素）。看门狗据此发现「岛跑到别的屏上去了」并拉回来。
+    /// 光靠热插拔事件不够：有些环境不广播（远程桌面、驱动更新、部分虚拟机），
+    /// 定期核对一次是免费的保险（只是比几个整数）。
+    /// </summary>
+    private Windows.Graphics.RectInt32 _displayOuter;
 
     // 位置切换滑动：只移动窗口、绝不改窗口尺寸
     private DispatcherQueueTimer? _positionSlide;
@@ -368,9 +376,15 @@ public sealed partial class IslandWindow : Window
 
         _settings.Changed += OnSettingChanged;
         SystemTheme.Changed += OnSystemThemeChanged;
+
+        // 多屏热插拔：拔/接外接屏、换分辨率、改显示器排列、切投影模式。
+        // 系统只广播 DisplayInformation.DisplayContentsInvalidated（任意线程），这里编组到 UI 线程再重新定位。
+        DisplayResolver.EnsureInvalidationWatcher();
+        DisplayResolver.DisplaysInvalidated += OnDisplaysInvalidatedFromAnyThread;
         Closed += (_, _) =>
         {
             SystemTheme.Changed -= OnSystemThemeChanged;
+            DisplayResolver.DisplaysInvalidated -= OnDisplaysInvalidatedFromAnyThread;
             StopPositionSlide();
             _positionSlide = null;
             _watchdog?.Stop();
@@ -1767,6 +1781,14 @@ public sealed partial class IslandWindow : Window
         Bottom = r.Y + r.Height,
     };
 
+    /// <summary>
+    /// 岛该锚定到哪块显示器：按 <c>island.display</c>（auto = 跟随鼠标所在屏）解析。
+    /// 这是全窗口唯一的显示器来源 —— 绝不要再出现 <c>DisplayAreaFallback.Primary</c>：
+    /// 它只认主屏，多屏用户的岛会永远赖在主屏，跟随鼠标/指定屏都失效。
+    /// </summary>
+    private DisplayArea ResolveDisplay()
+        => DisplayResolver.Resolve(_settings.Get<string?>(DisplayKey, null), AppWindow.Id);
+
     private static Windows.Graphics.RectInt32 ToRectInt32(Win32.RECT r)
         => new(r.Left, r.Top, r.Right - r.Left, r.Bottom - r.Top);
 
@@ -1787,11 +1809,11 @@ public sealed partial class IslandWindow : Window
         if (!force && Environment.TickCount64 - _freeBandsAt < FreeBandsThrottleMs) return;
         _freeBandsAt = Environment.TickCount64;
 
-        var outer = ToRect(DisplayArea.GetFromWindowId(AppWindow.Id, DisplayAreaFallback.Primary).OuterBounds);
-        if (Win32.GetTaskbarStrip(outer) is not { Visible: true } tray || tray.Docked.Bottom < outer.Bottom - Win32.SliverPx)
+        var outer = ToRect(ResolveDisplay().OuterBounds);
+        if (Win32.GetTaskbarStripFor(outer) is not { Visible: true } tray || tray.Docked.Bottom < outer.Bottom - Win32.SliverPx)
             return;
 
-        var hwnd = Win32.GetTaskbarWindow();
+        var hwnd = Win32.GetTaskbarWindow(outer);
         if (hwnd == nint.Zero) return;
 
         var strip = ToRectInt32(tray.Docked);
@@ -1918,7 +1940,8 @@ public sealed partial class IslandWindow : Window
         int w = (int)Math.Round(_canvas.Width * s);
         int h = (int)Math.Round(_canvas.Height * s);
 
-        var display = DisplayArea.GetFromWindowId(AppWindow.Id, DisplayAreaFallback.Primary);
+        var display = ResolveDisplay();
+        _displayOuter = display.OuterBounds;
         Win32.RECT strip = ToRect(display.WorkArea);
         bool embedded = false;
         int trayLeft = 0;
@@ -1927,7 +1950,7 @@ public sealed partial class IslandWindow : Window
             // 优先嵌进任务栏条带：与任务栏同一条带、同一高度基准。
             // 任务栏不可用（自动隐藏收起/不在屏幕底部/取不到）时退回屏幕外框底边。
             var outer = ToRect(display.OuterBounds);
-            var tray = Win32.GetTaskbarStrip(outer);
+            var tray = Win32.GetTaskbarStripFor(outer);
             if (tray is { Visible: true } t && t.Docked.Bottom >= outer.Bottom - Win32.SliverPx)
             {
                 embedded = true;
@@ -2107,6 +2130,49 @@ public sealed partial class IslandWindow : Window
         return timer;
     }
 
+    /// <summary>DisplayInformation 的事件在任意线程触发：立刻编组回 UI 线程。</summary>
+    private void OnDisplaysInvalidatedFromAnyThread()
+        => DispatcherQueue.TryEnqueue(OnDisplaysInvalidated);
+
+    /// <summary>
+    /// 显示器配置变了（热插拔/分辨率/排列/投影）：重新解析目标屏并把岛搬过去。
+    ///
+    /// 为什么是两拍：窗口的 DPI 是**跟着窗口当前所在屏**走的（<c>GetDpiForWindow</c>），
+    /// 而 <c>ApplyCanvasBounds</c> 里的尺寸/落点又全按 <c>Scale</c> 算 —— 第一拍里窗口还压在旧屏上，
+    /// 算出来的是「新屏的坐标 + 旧屏的缩放」，落点必然偏。所以：
+    /// 第一拍只负责把窗口挪到新屏（顺带把 <c>_displayOuter</c>/<c>_displayKey</c> 更新掉），
+    /// 第二拍等 DWM 把 DPI 传播完，再按正确的缩放重算一次，这才是最终落点。
+    /// 两拍都必须在展开动画之外 —— 展开中移动窗口会打断动画（同空闲段那条规矩）。
+    /// </summary>
+    private void OnDisplaysInvalidated()
+    {
+        if (!_shown) return;
+
+        // 空闲段是旧屏的物理坐标：不丢的话 SelectFreeBand 会把岛摆到新屏之外去
+        _freeBands = Array.Empty<Windows.Graphics.RectInt32>();
+        _freeBandsDirty = false;
+        _freeBandsAt = 0;
+
+        // 展开中：收起时 WatchdogTick 会因为 _freeBandsDirty 之外的路径不会自动补位，
+        // 所以这里再挂一次待办，等收起后落位（复用空闲段那套「稍后应用」的机制）。
+        if (_expanded)
+        {
+            _freeBandsDirty = true;
+            return;
+        }
+
+        // 第一拍：把窗口挪到新屏（此时 Scale 可能还是旧屏的，落点先粗对）
+        ApplyCanvasBounds();
+
+        // 第二拍：DPI 传播完后按正确缩放重算 —— 只在真的换了屏/换了 DPI 时才需要
+        DispatcherQueue.TryEnqueue(Microsoft.UI.Dispatching.DispatcherQueuePriority.Low, () =>
+        {
+            if (!_shown || _expanded) return;
+            ApplyCanvasBounds();
+            RefreshFreeBands(force: true);
+        });
+    }
+
     /// <summary>
     /// 看门狗。先无条件做一次置顶自愈 —— 位置模式与置顶无关，顶部模式曾经没有任何重升时机，
     /// 被盖住后只能重启恢复。任务栏跟随只在底部模式有意义，顶部模式到此为止。
@@ -2115,10 +2181,15 @@ public sealed partial class IslandWindow : Window
     {
         HealTopmost();
 
+        // 锚定屏漂移自愈（两种位置模式都要）：热插拔事件在某些环境不广播（远程桌面、驱动更新、
+        // 部分虚拟机），这里按外框定期核对一次，发现目标屏换了/尺寸变了就重新落位。
+        // 只是比几个整数，成本可以忽略；展开中不移动窗口，留到收起后由 _freeBandsDirty 那条路径落位。
+        if (HealDisplayDrift()) return;
+
         if (!_bottomAnchored) return;
 
-        var outer = ToRect(DisplayArea.GetFromWindowId(AppWindow.Id, DisplayAreaFallback.Primary).OuterBounds);
-        var tray = Win32.GetTaskbarStrip(outer);
+        var outer = ToRect(ResolveDisplay().OuterBounds);
+        var tray = Win32.GetTaskbarStripFor(outer);
         // 只有「停靠在屏幕底部、但被收起」的任务栏才让岛跟着收起（自动隐藏/全屏）。
         // 停靠位置看 ABM_GETTASKBARPOS 的停靠矩形 —— 任务栏收起时它仍报告停靠位置；
         // 任务栏不在底部（Win10 风格顶部任务栏）或根本没有任务栏时，岛退回屏幕底边并保持显示。
@@ -2148,6 +2219,39 @@ public sealed partial class IslandWindow : Window
             RefreshFreeBands(force: true);      // 条带位置/分辨率变了，空闲段坐标要重新量
             ApplyCanvasBounds();
         }
+    }
+
+    /// <summary>
+    /// 锚定屏漂移自愈：目标屏的外框变了（热插拔 / 换了分辨率 / 显示器排列调整 / 用户把设置改成跟随鼠标
+    /// 而鼠标挪到了别的屏）就重新落位。返回 true 表示已经处理并重新定位，调用方本轮不必再动。
+    /// 展开中不移动窗口（会打断动画），改为标记待应用，收起后由看门狗那条 <c>_freeBandsDirty</c> 路径落位。
+    /// </summary>
+    private bool HealDisplayDrift()
+    {
+        // 还没落过位（_windowPhysW 为 0）：_displayOuter 是初始值，此刻比对必然"漂移"。
+        // 首次定位由 RefreshFromSettings / 构造流程负责，不归看门狗管。
+        if (_windowPhysW <= 0 || _displayOuter.Width <= 0) return false;
+
+        var outer = ResolveDisplay().OuterBounds;
+        if (outer.X == _displayOuter.X && outer.Y == _displayOuter.Y
+            && outer.Width == _displayOuter.Width && outer.Height == _displayOuter.Height)
+        {
+            return false;
+        }
+
+        // 旧屏的空闲段在新屏上无效
+        _freeBands = Array.Empty<Windows.Graphics.RectInt32>();
+        _freeBandsAt = 0;
+
+        if (_expanded)
+        {
+            _freeBandsDirty = true;
+            return false;
+        }
+
+        ApplyCanvasBounds();
+        RefreshFreeBands(force: true);
+        return true;
     }
 
     /// <summary>

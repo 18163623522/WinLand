@@ -103,12 +103,42 @@ internal sealed class ChoiceCard
     {
         row.Children.Clear();
         row.ColumnDefinitions.Clear();
+        row.RowDefinitions.Clear();
         row.ColumnSpacing = 10;
+        row.RowSpacing = 10;
         for (int i = 0; i < cards.Length; i++)
         {
             row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
             Grid.SetColumn(cards[i].Root, i);
             row.Children.Add(cards[i].Root);
+        }
+    }
+
+    /// <summary>
+    /// 把一组卡片铺进「每行至多 <paramref name="perRow"/> 张」的网格。显示器卡片用这个：
+    /// 屏的数量随机器变（1 到 4+），一行塞 5 张星号列会把标题压成三条字。
+    /// </summary>
+    public static void FillGrid(Grid grid, int perRow, params ChoiceCard[] cards)
+    {
+        grid.Children.Clear();
+        grid.ColumnDefinitions.Clear();
+        grid.RowDefinitions.Clear();
+        grid.ColumnSpacing = 10;
+        grid.RowSpacing = 10;
+
+        perRow = Math.Max(1, perRow);
+        int rows = (cards.Length + perRow - 1) / perRow;
+
+        for (int c = 0; c < perRow; c++)
+            grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        for (int r = 0; r < rows; r++)
+            grid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+
+        for (int i = 0; i < cards.Length; i++)
+        {
+            Grid.SetRow(cards[i].Root, i / perRow);
+            Grid.SetColumn(cards[i].Root, i % perRow);
+            grid.Children.Add(cards[i].Root);
         }
     }
 
@@ -172,6 +202,98 @@ internal sealed class ChoiceCard
         });
 
         return screen;
+    }
+
+    /// <summary>
+    /// 多显示器示意图：画一块或两块屏。<paramref name="selectedIndex"/> 标出当前这张卡代表哪块屏
+    /// （0 = 左/主、1 = 右/副；-1 = 没有选中态），<paramref name="primaryIndex"/> 标主屏（粗描边）。
+    /// 用于「岛锚定到哪块屏」的卡片 —— 单显示器机器上只画一块，不该看到假的第二块屏。
+    /// </summary>
+    public static FrameworkElement DisplayDiagram(int count, int selectedIndex, int primaryIndex)
+    {
+        var frame = new Grid { Width = 120, Height = 76 };
+        count = Math.Clamp(count, 1, 2);
+
+        var host = new StackPanel
+        {
+            Orientation = Orientation.Horizontal,
+            Spacing = 4,
+            HorizontalAlignment = HorizontalAlignment.Center,
+            VerticalAlignment = VerticalAlignment.Center,
+        };
+
+        for (int i = 0; i < count; i++)
+        {
+            bool isPrimary = i == primaryIndex;
+            bool isSelected = i == selectedIndex;
+
+            host.Children.Add(new Border
+            {
+                Width = count == 2 ? 54 : 76,
+                Height = count == 2 ? 40 : 54,
+                CornerRadius = new CornerRadius(4),
+                Background = new SolidColorBrush(isSelected
+                    ? AccentSoft
+                    : isPrimary
+                        ? Color.FromArgb(255, 34, 34, 40)
+                        : Color.FromArgb(255, 26, 26, 31)),
+                BorderBrush = new SolidColorBrush(isSelected ? Accent : Color.FromArgb(56, 255, 255, 255)),
+                BorderThickness = new Thickness(isPrimary || isSelected ? 2 : 1),
+                Child = new Border
+                {
+                    Width = count == 2 ? 18 : 26,
+                    Height = 6,
+                    CornerRadius = new CornerRadius(3),
+                    Background = new SolidColorBrush(isSelected ? Accent : Color.FromArgb(70, 255, 255, 255)),
+                    HorizontalAlignment = HorizontalAlignment.Center,
+                    VerticalAlignment = VerticalAlignment.Top,
+                    Margin = new Thickness(0, 6, 0, 0),
+                },
+            });
+        }
+
+        frame.Children.Add(host);
+        return frame;
+    }
+
+    /// <summary>「自动跟随鼠标」卡的示意图：一块屏 + 一个指针图标，点明"这是跟随光标"。</summary>
+    public static FrameworkElement AutoDisplayDiagram()
+    {
+        var frame = new Grid { Width = 120, Height = 76 };
+        frame.Children.Add(new Border
+        {
+            Width = 82,
+            Height = 56,
+            CornerRadius = new CornerRadius(5),
+            Background = new SolidColorBrush(Color.FromArgb(255, 30, 30, 36)),
+            BorderBrush = new SolidColorBrush(Color.FromArgb(48, 255, 255, 255)),
+            BorderThickness = new Thickness(1),
+            HorizontalAlignment = HorizontalAlignment.Center,
+            VerticalAlignment = VerticalAlignment.Center,
+            Child = new Border
+            {
+                Width = 30,
+                Height = 7,
+                CornerRadius = new CornerRadius(3.5),
+                Background = new SolidColorBrush(Accent),
+                HorizontalAlignment = HorizontalAlignment.Center,
+                VerticalAlignment = VerticalAlignment.Top,
+                Margin = new Thickness(0, 7, 0, 0),
+            },
+        });
+
+        // 指针：一个实心三角 + 尾部，摆在屏的右下侧，表示"光标在哪块屏、岛就去哪块"
+        var cursor = new FontIcon
+        {
+            Glyph = "\uE8B0", // Segoe Fluent Icons: Mouse
+            FontSize = 20,
+            Foreground = new SolidColorBrush(Accent),
+            HorizontalAlignment = HorizontalAlignment.Right,
+            VerticalAlignment = VerticalAlignment.Bottom,
+            Margin = new Thickness(0, 0, 6, 4),
+        };
+        frame.Children.Add(cursor);
+        return frame;
     }
 
     /// <summary>外观风格预览：Apple 黑胶囊 / Fluent 小圆角 + 描边，画刷直接取自 <see cref="IslandStyle"/>。</summary>

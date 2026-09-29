@@ -192,6 +192,19 @@
 
         <Border Style="{StaticResource SettingsCardStyle}">
             <StackPanel Spacing="4">
+                <TextBlock Text="显示器" />
+                <TextBlock
+                    x:Name="DisplayHint"
+                    Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                    Style="{StaticResource CaptionTextBlockStyle}"
+                    Text="岛锚定在哪块屏幕：跟随鼠标光标，或固定某一台。多屏热插拔时会自动重新定位"
+                    TextWrapping="Wrap" />
+                <Grid x:Name="DisplayCards" Margin="0,8,0,0" />
+            </StackPanel>
+        </Border>
+
+        <Border Style="{StaticResource SettingsCardStyle}">
+            <StackPanel Spacing="4">
                 <TextBlock Text="位置" />
                 <TextBlock
                     Foreground="{ThemeResource TextFillColorSecondaryBrush}"

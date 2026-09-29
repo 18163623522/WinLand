@@ -203,6 +203,142 @@ internal static partial class Win32
     [return: MarshalAs(UnmanagedType.Bool)]
     public static partial bool GetCursorPos(out POINT lpPoint);
 
+    /// <summary>MONITOR_DEFAULTTONEAREST</summary>
+    public const uint MONITOR_DEFAULTTONEAREST = 2;
+
+    /// <summary>
+    /// 按「显示器 id」（<c>DisplayArea.DisplayId.Value</c>）取 HMONITOR —— 用来把 WinRT 的
+    /// <c>DisplayArea</c> 和 <c>DisplayInformation</c>（设备名/物理尺寸）对上。
+    /// 取不到返回 0。
+    /// </summary>
+    [LibraryImport("user32.dll", EntryPoint = "MonitorFromPoint")]
+    private static partial nint MonitorFromPointWrapped(POINT pt, uint dwFlags);
+
+    /// <summary>
+    /// WinRT 的 <c>DisplayArea.DisplayId</c> 与 Win32 的 HMONITOR 是两套 id，不能直接互换。
+    /// 桥接办法：<c>DisplayArea.DisplayId.Value</c> 的高 32 位是适配器 id、低 32 位是目标 id，
+    /// 而 <c>MonitorFromPoint</c> 在 Windows 10 1903+ 上会把这两个值当作
+    /// 「DISPLAYCONFIG 路径」的 LUID/target id 来解析（历史兼容行为，即 MonitorFromDisplayId）。
+    /// 因此把 DisplayId 原样塞进 POINT 的 X 分量再调用它。
+    /// 换不到时返回 0，调用方自行降级。
+    /// </summary>
+    public static nint MonitorFromDisplayId(int displayId, uint flags)
+        => MonitorFromPointWrapped(new POINT { X = displayId, Y = 0 }, flags);
+
+    // ---- 显示器枚举：拿 \\.\DISPLAYn 名字与它在虚拟桌面里的排列位置 ----
+
+    [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
+    private struct DISPLAY_DEVICE
+    {
+        public uint cb;
+        [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 32)]
+        public string DeviceName;
+        [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 128)]
+        public string DeviceString;
+        public uint StateFlags;
+        [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 128)]
+        public string DeviceID;
+        [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 128)]
+        public string DeviceKey;
+    }
+
+    [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
+    private struct DEVMODE
+    {
+        [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 32)]
+        public string dmDeviceName;
+        public ushort dmSpecVersion;
+        public ushort dmDriverVersion;
+        public ushort dmSize;
+        public ushort dmDriverExtra;
+        public uint dmFields;
+        public int dmPositionX;
+        public int dmPositionY;
+        public uint dmDisplayOrientation;
+        public uint dmDisplayFixedOutput;
+        public short dmColor;
+        public short dmDuplex;
+        public short dmYResolution;
+        public short dmTTOption;
+        public short dmCollate;
+        [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 32)]
+        public string dmFormName;
+        public ushort dmLogPixels;
+        public uint dmBitsPerPel;
+        public uint dmPelsWidth;
+        public uint dmPelsHeight;
+        public uint dmDisplayFlags;
+        public uint dmDisplayFrequency;
+        public uint dmICMMethod;
+        public uint dmICMIntent;
+        public uint dmMediaType;
+        public uint dmDitherType;
+        public uint dmReserved1;
+        public uint dmReserved2;
+        public uint dmPanningWidth;
+        public uint dmPanningHeight;
+    }
+
+    // DISPLAY_DEVICE.StateFlags
+    private const uint DISPLAY_DEVICE_ATTACHED_TO_DESKTOP = 0x00000001;
+    private const uint DISPLAY_DEVICE_PRIMARY_DEVICE = 0x00000004;
+    private const uint DISPLAY_DEVICE_MIRRORING_DRIVER = 0x00000008;
+
+    private const int ENUM_CURRENT_SETTINGS = -1;
+
+    [DllImport("user32.dll", CharSet = CharSet.Unicode)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool EnumDisplayDevices(string? lpDevice, uint iDevNum, ref DISPLAY_DEVICE lpDisplayDevice, uint dwFlags);
+
+    [DllImport("user32.dll", CharSet = CharSet.Unicode)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool EnumDisplaySettings(string? lpszDeviceName, int iModeNum, ref DEVMODE lpDevMode);
+
+    /// <summary>一块活动显示器的 Win32 视图（<c>\\.\DISPLAYn</c>、适配器名、是否主屏、在虚拟桌面里的排列原点）。</summary>
+    public readonly record struct DisplayDevice(string Name, string Adapter, bool IsPrimary, POINT Position);
+
+    /// <summary>
+    /// 枚举**接在桌面上**的显示器（<c>EnumDisplayDevices</c> + 当前显示设置）。
+    /// 用途：<c>DisplayArea</c> 只给一个整数 id，而设置里要存人看得懂、能手改的 <c>\\.\DISPLAYn</c>，
+    /// 两者靠外框原点对上（排列原点与 <c>DisplayArea.OuterBounds</c> 的原点是同一套虚拟桌面坐标）。
+    /// 镜像驱动、未接桌面的适配器会被过滤掉。枚举失败返回空数组。
+    /// </summary>
+    public static IReadOnlyList<DisplayDevice> EnumerateDisplayDevices()
+    {
+        var result = new List<DisplayDevice>(2);
+        var device = NewDisplayDevice();
+
+        for (uint i = 0; EnumDisplayDevices(null, i, ref device, 0); i++)
+        {
+            var current = device;
+            // 结构体是复用的：读走本轮结果后立刻清空字符串字段，否则下一轮会读到上一轮的值
+            device = NewDisplayDevice();
+
+            if ((current.StateFlags & DISPLAY_DEVICE_ATTACHED_TO_DESKTOP) == 0) continue;
+            if ((current.StateFlags & DISPLAY_DEVICE_MIRRORING_DRIVER) != 0) continue;
+
+            var mode = new DEVMODE { dmSize = (ushort)Marshal.SizeOf<DEVMODE>() };
+            if (!EnumDisplaySettings(current.DeviceName, ENUM_CURRENT_SETTINGS, ref mode)) continue;
+
+            result.Add(new DisplayDevice(
+                current.DeviceName,
+                current.DeviceString,
+                (current.StateFlags & DISPLAY_DEVICE_PRIMARY_DEVICE) != 0,
+                new POINT { X = mode.dmPositionX, Y = mode.dmPositionY }));
+        }
+
+        return result;
+
+        static DISPLAY_DEVICE NewDisplayDevice() => new()
+        {
+            cb = (uint)Marshal.SizeOf<DISPLAY_DEVICE>(),
+            DeviceName = string.Empty,
+            DeviceString = string.Empty,
+            DeviceID = string.Empty,
+            DeviceKey = string.Empty,
+        };
+    }
+
     [LibraryImport("user32.dll", SetLastError = true)]
     [return: MarshalAs(UnmanagedType.Bool)]
     public static partial bool SetWindowPos(nint hWnd, nint hWndInsertAfter, int x, int y, int cx, int cy, uint flags);
@@ -652,16 +788,30 @@ internal static partial class Win32
     [LibraryImport("shell32.dll")]
     private static partial nint SHAppBarMessage(uint dwMessage, ref APPBARDATA pData);
 
-    /// <summary>
-    /// 主任务栏条带。<paramref name="display"/> 为主显示器外框（物理像素，用于判断任务栏是否真的在屏幕上）。
+    /// <summary>主任务栏条带。<paramref name="display"/> 为主显示器外框（物理像素，用于判断任务栏是否真的在屏幕上）。
     /// 停靠矩形取 ABM_GETTASKBARPOS —— 它在任务栏自动隐藏时仍报告停靠位置，正是要嵌入的位置；
     /// 可见性另算：自动隐藏/全屏收起时任务栏被移出屏幕，只留一道缝隙。
     /// 取不到（非 explorer 外壳、调用失败）返回 null，调用方退回屏幕外框。
-    /// </summary>
+    /// 多屏请改用 <see cref="GetTaskbarStripFor(RECT)"/> —— 每个屏有自己的任务栏窗口。</summary>
     public static TaskbarStrip? GetTaskbarStrip(RECT display)
+        => GetTaskbarStripFor(display);
+
+    /// <summary>
+    /// 指定显示器上的任务栏条带（物理像素）。<paramref name="display"/> 是目标显示器的外框。
+    ///
+    /// 多屏的关键：主屏任务栏的窗口类是 <c>Shell_TrayWnd</c>，而每个**副屏**各有自己的任务栏窗口，
+    /// 类是 <c>Shell_SecondaryTrayWnd</c>（每个屏一个，没有标题）。原来的实现只 FindWindow 主任务栏，
+    /// 于是副屏上要么量到主屏任务栏的位置、要么什么也量不到 —— 副屏的岛因此永远不会嵌进任务栏。
+    ///
+    /// 匹配方式：枚举所有任务栏窗口（主 + 全部副屏），取**停靠矩形与目标显示器外框重叠最多**的那个。
+    /// 只按矩形匹配、不按顺序/编号匹配 —— 显示器编号与任务栏创建顺序没有保证。
+    /// 一块屏都没有匹配上（该屏禁用了任务栏、非 explorer 外壳）时返回 null。
+    /// </summary>
+    public static TaskbarStrip? GetTaskbarStripFor(RECT display)
     {
-        var tray = FindWindow("Shell_TrayWnd", null);
-        if (tray == nint.Zero || !GetWindowRect(tray, out var live)) return null;
+        var tray = FindTaskbarFor(display);
+        if (tray == nint.Zero) return null;
+        if (!GetWindowRect(tray, out var live)) return null;
 
         bool visible = IsWindowVisible(tray) && MinOverlap(live, display) >= SliverPx;
 
@@ -671,11 +821,64 @@ internal static partial class Win32
         if (notify != nint.Zero && GetWindowRect(notify, out var notifyRect) && notifyRect.Right > notifyRect.Left)
             trayLeft = notifyRect.Left;
 
-        return new TaskbarStrip(TryGetDockedTaskbarRect() ?? live, visible, trayLeft);
+        // ABM_GETTASKBARPOS 只报告**主**任务栏的停靠位置，对副屏无效（它还停在主屏底部）。
+        // 所以只有目标就是主任务栏时才用它（它能在自动隐藏时给出正确的停靠矩形）；
+        // 副屏用窗口自身的实时矩形 —— 副屏任务栏不会被自动隐藏逻辑移出屏幕，实时矩形就是停靠矩形。
+        RECT docked;
+        if (tray == FindWindow("Shell_TrayWnd", null) && TryGetDockedTaskbarRect() is { } appbar)
+            docked = appbar;
+        else
+            docked = live;
+
+        return new TaskbarStrip(docked, visible, trayLeft);
     }
 
-    /// <summary>主任务栏窗口句柄（Shell_TrayWnd）；取不到返回 0。UIA 枚举任务栏元素时要用。</summary>
-    public static nint GetTaskbarWindow() => FindWindow("Shell_TrayWnd", null);
+    /// <summary>
+    /// 目标显示器上的任务栏窗口句柄（主屏 <c>Shell_TrayWnd</c>、副屏 <c>Shell_SecondaryTrayWnd</c>）。
+    /// UIA 枚举任务栏元素时要用 —— 副屏任务栏是**另一个窗口**，拿主屏句柄去枚举只会看到主屏的按钮。
+    /// 取不到返回 0。
+    /// </summary>
+    public static nint GetTaskbarWindow(RECT display) => FindTaskbarFor(display);
+
+    private const string PrimaryTaskbarClass = "Shell_TrayWnd";
+    private const string SecondaryTaskbarClass = "Shell_SecondaryTrayWnd";
+
+    /// <summary>按「与目标显示器外框重叠最多」挑选任务栏窗口。一块都没重叠时返回 0。</summary>
+    private static nint FindTaskbarFor(RECT display)
+    {
+        nint best = nint.Zero;
+        int bestOverlap = 0;
+
+        // 主任务栏
+        var primary = FindWindow(PrimaryTaskbarClass, null);
+        Consider(primary);
+
+        // 每块副屏一个：类名相同、没有标题，只能逐个枚举同类的顶层窗口
+        nint cursor = nint.Zero;
+        while (true)
+        {
+            cursor = FindWindowEx(nint.Zero, cursor, SecondaryTaskbarClass, null);
+            if (cursor == nint.Zero) break;
+            Consider(cursor);
+        }
+
+        return best;
+
+        void Consider(nint hwnd)
+        {
+            if (hwnd == nint.Zero) return;
+            if (!GetWindowRect(hwnd, out var rect)) return;
+
+            int overlap = MinOverlap(rect, display);
+            // 只认真正压在这块屏上的任务栏：自动隐藏时任务栏被移出屏幕，重叠会变成负数/极小，
+            // 那种情况仍要认出来（岛据此判断"任务栏收起了"），所以用 0 做门槛而不是 SliverPx。
+            if (overlap < 0) return;
+            if (overlap <= bestOverlap && best != nint.Zero) return;
+
+            bestOverlap = overlap;
+            best = hwnd;
+        }
+    }
 
     /// <summary>两个矩形的较小重叠边（负数表示不重叠）。</summary>
     private static int MinOverlap(RECT a, RECT b)

@@ -16,6 +16,7 @@ public sealed partial class GeneralSettingsPage : UserControl
     private const string HoverExpandKey = "island.hoverExpand";
     private const string HoverDelayKey = "island.hoverDelay";
     private const string BounceKey = "island.bounce";
+    private const string DisplayKey = "island.display";
 
     private static readonly string[] HorizontalValues = { "center", "left", "right" };
 
@@ -31,6 +32,9 @@ public sealed partial class GeneralSettingsPage : UserControl
     private ChoiceCard[] _styleCards = Array.Empty<ChoiceCard>();
     private ChoiceCard[] _materialCards = Array.Empty<ChoiceCard>();
     private ChoiceCard[] _autoStartCards = Array.Empty<ChoiceCard>();
+    private ChoiceCard[] _displayCards = Array.Empty<ChoiceCard>();
+    /// <summary>显示器卡片的顺序键（index 0 固定是 auto，其余与枚举结果一一对应）。</summary>
+    private string[] _displayKeys = Array.Empty<string>();
 
     public GeneralSettingsPage(ISettingsStore settings, Action? openOnboarding = null)
     {
@@ -108,6 +112,91 @@ public sealed partial class GeneralSettingsPage : UserControl
             ChoiceCard.Build("autostart.admin", null, "管理员权限自启动", "登录后以管理员身份静默启动（需一次 UAC 授权）", () => PickAutoStart(AutoStartMode.Admin)),
         };
         ChoiceCard.FillRow(AutoStartCards, _autoStartCards);
+
+        RebuildDisplayCards();
+
+        // 设置页开着时插/拔显示器：卡片列表要跟着变，否则用户会看到一块已经不存在的屏
+        DisplayResolver.DisplaysInvalidated += OnDisplaysInvalidated;
+        Unloaded += (_, _) => DisplayResolver.DisplaysInvalidated -= OnDisplaysInvalidated;
+    }
+
+    private void OnDisplaysInvalidated()
+    {
+        if (!DispatcherQueue.HasThreadAccess)
+        {
+            DispatcherQueue.TryEnqueue(RebuildDisplayCards);
+            return;
+        }
+
+        RebuildDisplayCards();
+    }
+
+    /// <summary>
+    /// 显示器卡片：第一张固定是「自动（跟随鼠标）」，后面是这台机器实际枚举到的每一块屏。
+    /// 实时枚举而不是读缓存 —— 设置页打开时用户刚插上的屏应该立刻出现；
+    /// 显示器数量变了会在系统事件后重建一次，见下面的 DisplaysInvalidated 订阅。
+    /// </summary>
+    private void RebuildDisplayCards()
+    {
+        var displays = DisplayResolver.List();
+        var selected = _settings.Get<string?>(DisplayKey, null);
+
+        var cards = new List<ChoiceCard>
+        {
+            ChoiceCard.Build(
+                "display.auto",
+                ChoiceCard.AutoDisplayDiagram(),
+                "自动",
+                "跟随鼠标光标所在的那块屏",
+                () => PickDisplay(null)),
+        };
+
+        var keys = new List<string> { DisplayResolver.DisplayAuto };
+
+        // 单显示器机器不画"多屏"示意图，免得凭空多出一块不存在的屏
+        int diagramCount = Math.Clamp(displays.Length, 1, 2);
+        int primaryIndex = Array.FindIndex(displays, d => d.IsPrimary);
+
+        for (int i = 0; i < displays.Length; i++)
+        {
+            var d = displays[i];
+            int diagramSlot = displays.Length == 1 ? 0 : (i == 0 ? 0 : 1);
+            cards.Add(ChoiceCard.Build(
+                $"display.{i}",
+                ChoiceCard.DisplayDiagram(diagramCount, diagramSlot, primaryIndex),
+                d.Label,
+                d.IsPrimary ? "系统主显示器" : "扩展显示器",
+                () => PickDisplay(d.Key)));
+            keys.Add(d.Key);
+        }
+
+        // 被指定的那块屏拔掉了：卡片列表里已经没有它，但设置里还留着旧 id ——
+        // 界面要诚实反映"现在实际跟的是哪块屏"，所以按「设置值匹配不上任何卡片」时高亮自动。
+        int index = 0;
+        if (!string.IsNullOrWhiteSpace(selected) &&
+            !string.Equals(selected, DisplayResolver.DisplayAuto, StringComparison.OrdinalIgnoreCase))
+        {
+            int hit = keys.FindIndex(k => string.Equals(k, selected, StringComparison.OrdinalIgnoreCase));
+            index = hit >= 0 ? hit : 0;
+        }
+
+        _displayCards = cards.ToArray();
+        _displayKeys = keys.ToArray();
+        // 一行最多 3 张：屏多的时候折行，别把标题压成三条字
+        ChoiceCard.FillGrid(DisplayCards, perRow: 3, _displayCards);
+        Select(_displayCards, index);
+
+        DisplayHint.Text = displays.Length <= 1
+            ? "岛锚定在哪块屏幕。当前只检测到一块显示器"
+            : $"岛锚定在哪块屏幕：跟随鼠标光标，或固定某一台（当前检测到 {displays.Length} 块）。多屏热插拔时会自动重新定位";
+    }
+
+    /// <summary>写入 island.display；<paramref name="key"/> 为 null 表示「自动」。</summary>
+    private void PickDisplay(string? key)
+    {
+        if (_loading) return;
+        _settings.Set(DisplayKey, key ?? DisplayResolver.DisplayAuto);
+        Select(_displayCards, Math.Max(0, Array.IndexOf(_displayKeys, key ?? DisplayResolver.DisplayAuto)));
     }
 
     private void PickPosition(bool bottom)

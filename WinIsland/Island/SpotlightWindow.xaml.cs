@@ -453,13 +453,21 @@ public sealed partial class SpotlightWindow : Window
         ResetVisuals();
     }
 
-    /// <summary>主岛所在的显示器；矩形无效（还没定位好）时退回主显示器。</summary>
+    /// <summary>
+    /// 聚光卡铺满的显示器：**主岛所在的那块**（飞入起点就是主岛矩形，所以卡片必须开在同一块屏上，
+    /// 否则会从另一块屏飞过来）。
+    ///
+    /// 这里不再"从岛矩形反推"——反推用的是 <c>DisplayAreaFallback.Nearest</c>，在显示器排列有重叠、
+    /// 或岛刚好压在两块屏交界处时会挑错屏（岛在主屏、卡片开到副屏）。改为：
+    /// 主岛矩形有效时按它取屏（岛是真的在那块屏上，这是等价于"岛所在屏"的可靠判据）；
+    /// 矩形无效（还没定位好）时退回主显示器。
+    /// </summary>
     private static DisplayArea ResolveDisplay(Win32.RECT origin, out RectInt32 outerBounds)
     {
         int width = origin.Right - origin.Left;
         int height = origin.Bottom - origin.Top;
         var area = width > 0 && height > 0
-            ? DisplayArea.GetFromRect(new RectInt32(origin.Left, origin.Top, width, height), DisplayAreaFallback.Nearest)
+            ? DisplayResolver.FromRect(new RectInt32(origin.Left, origin.Top, width, height))
             : DisplayArea.GetFromRect(new RectInt32(0, 0, 1, 1), DisplayAreaFallback.Primary);
         outerBounds = area.OuterBounds;
         return area;
