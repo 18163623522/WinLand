@@ -433,6 +433,7 @@ public sealed partial class IslandWindow : Window
         SetContentImmediate(_idleContent);
         // 上次翻到的那个活动（插件 id）：队列再展开时优先回到它（可能已被卸载/降级，定位不到就退回默认位）
         _tailOwner = _settings.Get<string?>(QueueTailKey, null);
+        ApplyScaleSettings();
         ApplyPositionMode();
         ApplyStyle();
         ApplyDropSetting();
