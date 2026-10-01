@@ -192,6 +192,93 @@
 
         <Border Style="{StaticResource SettingsCardStyle}">
             <StackPanel Spacing="4">
+                <TextBlock Text="全屏应用时" />
+                <TextBlock
+                    Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                    Style="{StaticResource CaptionTextBlockStyle}"
+                    Text="游戏、视频等全屏软件占满屏幕时灵动岛怎么办：隐藏岛体并在屏幕边缘留一条小色条（鼠标靠近即展开）、完全隐藏，或照常显示"
+                    TextWrapping="Wrap" />
+                <Grid x:Name="FullscreenCards" Margin="0,8,0,0" />
+            </StackPanel>
+        </Border>
+
+        <Border Style="{StaticResource SettingsCardStyle}">
+            <StackPanel Spacing="12">
+                <TextBlock Text="界面缩放 (%)" />
+                <Grid ColumnSpacing="16">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="Auto" />
+                    </Grid.ColumnDefinitions>
+                    <StackPanel Spacing="2" VerticalAlignment="Center">
+                        <TextBlock Text="灵动岛" />
+                        <TextBlock
+                            Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                            Style="{StaticResource CaptionTextBlockStyle}"
+                            Text="活动、展开队列、消息、投放面板的整体大小"
+                            TextWrapping="Wrap" />
+                    </StackPanel>
+                    <Slider
+                        x:Name="ScaleIslandSlider"
+                        Grid.Column="1"
+                        Width="200"
+                        Maximum="200"
+                        Minimum="50"
+                        StepFrequency="5"
+                        VerticalAlignment="Center"
+                        ValueChanged="ScaleSlider_ValueChanged" />
+                </Grid>
+                <Grid ColumnSpacing="16">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="Auto" />
+                    </Grid.ColumnDefinitions>
+                    <StackPanel Spacing="2" VerticalAlignment="Center">
+                        <TextBlock Text="空闲小岛" />
+                        <TextBlock
+                            Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                            Style="{StaticResource CaptionTextBlockStyle}"
+                            Text="没有活动时那颗小胶囊的大小"
+                            TextWrapping="Wrap" />
+                    </StackPanel>
+                    <Slider
+                        x:Name="ScaleIdleSlider"
+                        Grid.Column="1"
+                        Width="200"
+                        Maximum="200"
+                        Minimum="50"
+                        StepFrequency="5"
+                        VerticalAlignment="Center"
+                        ValueChanged="ScaleSlider_ValueChanged" />
+                </Grid>
+                <Grid ColumnSpacing="16">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="Auto" />
+                    </Grid.ColumnDefinitions>
+                    <StackPanel Spacing="2" VerticalAlignment="Center">
+                        <TextBlock Text="全屏小色条" />
+                        <TextBlock
+                            Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                            Style="{StaticResource CaptionTextBlockStyle}"
+                            Text="全屏应用时贴在屏幕边缘的色条大小"
+                            TextWrapping="Wrap" />
+                    </StackPanel>
+                    <Slider
+                        x:Name="ScaleStripSlider"
+                        Grid.Column="1"
+                        Width="200"
+                        Maximum="200"
+                        Minimum="50"
+                        StepFrequency="5"
+                        VerticalAlignment="Center"
+                        ValueChanged="ScaleSlider_ValueChanged" />
+                </Grid>
+            </StackPanel>
+        </Border>
+
+        <Border Style="{StaticResource SettingsCardStyle}">
+            <StackPanel Spacing="4">
                 <TextBlock Text="显示器" />
                 <TextBlock
                     x:Name="DisplayHint"

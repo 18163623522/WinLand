@@ -14,7 +14,7 @@ using WinIsland.Settings;
 namespace WinIsland.Onboarding;
 
 /// <summary>
-/// 首次启动的新手引导：位置 / 外观材质 / 开机自启 / 推荐插件 / 系统托盘。
+/// 首次启动的新手引导：位置 / 外观材质 / 全屏行为与缩放 / 开机自启 / 推荐插件 / 系统托盘。
 /// 所有选项即改即生效——直接写 SettingsService，运行中的岛会自行刷新，
 /// 引导窗本身就是操作面板，实时预览就是引导的一部分。
 /// </summary>
@@ -32,6 +32,7 @@ public sealed partial class OnboardingWindow : Window
         "欢迎使用",
         "调整岛位置",
         "挑选外观",
+        "全屏与大小",
         "开机自启动",
         "推荐插件",
         "系统托盘与设置",
@@ -54,6 +55,7 @@ public sealed partial class OnboardingWindow : Window
     private ChoiceCard[] _horizontalCards = Array.Empty<ChoiceCard>();
     private ChoiceCard[] _styleCards = Array.Empty<ChoiceCard>();
     private ChoiceCard[] _materialCards = Array.Empty<ChoiceCard>();
+    private ChoiceCard[] _fullscreenCards = Array.Empty<ChoiceCard>();
     private ChoiceCard[] _autoStartCards = Array.Empty<ChoiceCard>();
 
     private bool _loading = true;
@@ -99,6 +101,10 @@ public sealed partial class OnboardingWindow : Window
         WelcomeDiagram.Children.Add(ChoiceCard.ScreenDiagram(
             IsBottom(), HorizontalIndex(_settings.Get(HorizontalKey, "center"))));
 
+        ScaleIslandSlider.Value = _settings.Get("island.scale.island", 100);
+        ScaleIdleSlider.Value = _settings.Get("island.scale.idle", 100);
+        ScaleStripSlider.Value = _settings.Get("island.scale.strip", 100);
+
         _autoStartApplied = AutoStartService.Current(
             AutoStartService.Parse(_settings.Get(AutoStartService.SettingKey, "off")));
         SelectCard(_autoStartCards, (int)_autoStartApplied);
@@ -136,7 +142,7 @@ public sealed partial class OnboardingWindow : Window
         int direction = index >= _step ? 1 : -1;
         _step = index;
 
-        var panels = new FrameworkElement[] { StepWelcome, StepPosition, StepAppearance, StepAutoStart, StepPlugins, StepTray };
+        var panels = new FrameworkElement[] { StepWelcome, StepPosition, StepAppearance, StepFullscreen, StepAutoStart, StepPlugins, StepTray };
         double width = StepHost.ActualWidth > 0 ? StepHost.ActualWidth : 696;
 
         for (int i = 0; i < panels.Length; i++)
@@ -186,7 +192,7 @@ public sealed partial class OnboardingWindow : Window
         NextButton.Content = index == StepTitles.Length - 1 ? "完成" : "下一步";
         ContentScroll.ChangeView(null, 0, null, true);
 
-        if (index == 4)
+        if (index == 5)
         {
             _ = LoadRecommendationsAsync();
         }
@@ -348,6 +354,15 @@ public sealed partial class OnboardingWindow : Window
         SelectCard(_materialCards, IslandStyle.IndexOf(material));
         SetMaterialCardsEnabled(style == IslandStyleKind.Fluent);
 
+        _fullscreenCards = new[]
+        {
+            ChoiceCard.Build("fullscreen.strip", null, "显示小色条", "隐藏岛体，屏幕边缘留一条色条，鼠标靠近即展开", () => PickFullscreen("strip")),
+            ChoiceCard.Build("fullscreen.hide", null, "完全隐藏", "全屏期间岛体与色条都不显示", () => PickFullscreen("hide")),
+            ChoiceCard.Build("fullscreen.normal", null, "正常显示", "不避让全屏，岛体照常置顶显示", () => PickFullscreen("normal")),
+        };
+        ChoiceCard.FillRow(FullscreenCards, _fullscreenCards);
+        SelectCard(_fullscreenCards, FullscreenIndex(_settings.Get("island.fullscreen", "strip")));
+
         _autoStartCards = new[]
         {
             ChoiceCard.Build("autostart.off", null, "关闭自启动", "需要时手动打开", () => PickAutoStart(AutoStartMode.Off)),
@@ -355,6 +370,24 @@ public sealed partial class OnboardingWindow : Window
             ChoiceCard.Build("autostart.admin", null, "管理员权限自启动", "登录后以管理员身份静默启动（需一次 UAC 授权）", () => PickAutoStart(AutoStartMode.Admin)),
         };
         ChoiceCard.FillRow(AutoStartCards, _autoStartCards);
+    }
+
+    private static int FullscreenIndex(string? mode) => mode switch { "hide" => 1, "normal" => 2, _ => 0 };
+
+    private void PickFullscreen(string mode)
+    {
+        if (_loading) return;
+        _settings.Set("island.fullscreen", mode);
+        SelectCard(_fullscreenCards, FullscreenIndex(mode));
+    }
+
+    private void ScaleSlider_ValueChanged(object sender, Microsoft.UI.Xaml.Controls.Primitives.RangeBaseValueChangedEventArgs e)
+    {
+        if (_loading) return;
+        string? key = ReferenceEquals(sender, ScaleIslandSlider) ? "island.scale.island"
+                    : ReferenceEquals(sender, ScaleIdleSlider) ? "island.scale.idle"
+                    : ReferenceEquals(sender, ScaleStripSlider) ? "island.scale.strip" : null;
+        if (key != null) _settings.Set(key, (int)Math.Round(((Slider)sender).Value));
     }
 
     private void PickPosition(bool bottom)
