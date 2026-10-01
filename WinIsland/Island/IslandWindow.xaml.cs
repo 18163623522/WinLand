@@ -44,7 +44,37 @@ public sealed partial class IslandWindow : Window
     /// <summary>翻页时新卡内容层的起始缩放：只缩不放（恒 ≤ 1），所以永远不会越出卡片矩形。</summary>
     private const double PageEnterScale = 0.97;
     private static readonly string[] ScaleProperties = { "ScaleX", "ScaleY" };
-    private static readonly Size IdleSize = new(128, 34);
+    private static readonly Size IdleBaseSize = new(128, 34);
+
+    // 缩放比（百分比，设置项）：大岛（活动/展开/队列/消息/投放面板）、空闲小岛、全屏小色条各自独立
+    private const string ScaleIslandKey = "island.scale.island";
+    private const string ScaleIdleKey = "island.scale.idle";
+    private const string ScaleStripKey = "island.scale.strip";
+    internal const int ScaleMinPercent = 50;
+    internal const int ScaleMaxPercent = 200;
+
+    // 全屏应用时的行为：normal = 照常显示，strip = 隐藏岛体、屏幕边缘留小色条，hide = 完全隐藏
+    private const string FullscreenKey = "island.fullscreen";
+    internal const string FullscreenNormal = "normal";
+    internal const string FullscreenStrip = "strip";
+    internal const string FullscreenHide = "hide";
+    /// <summary>鼠标离开岛体（及色条）多久后，全屏下临时现身的岛体重新收回。</summary>
+    private const long FullscreenPeekGraceMs = 700;
+    /// <summary>色条靠近判定向屏幕内侧多扩的距离（DIP，色条本身只有几像素，不好瞄）。</summary>
+    private const double StripReachDip = 14;
+
+    /// <summary>空闲小岛尺寸 = 基准尺寸 × island.scale.idle（相对大岛缩放再叠加一层）。</summary>
+    private Size IdleSize
+    {
+        get
+        {
+            double k = ReadScale(ScaleIdleKey);
+            return new Size(Math.Round(IdleBaseSize.Width * k), Math.Round(IdleBaseSize.Height * k));
+        }
+    }
+
+    private double ReadScale(string key)
+        => Math.Clamp(_settings.Get(key, 100), ScaleMinPercent, ScaleMaxPercent) / 100.0;
     private static readonly TimeSpan ExpandDuration = TimeSpan.FromMilliseconds(333);
     private static readonly TimeSpan CollapseDuration = TimeSpan.FromMilliseconds(250);
     private const double MinCanvasWidth = 420;
@@ -196,7 +226,7 @@ public sealed partial class IslandWindow : Window
     private bool _backdropOwned;
     private bool _materialApplied;
     // 最近一次圆角对应的岛体高度与展开态，风格切换时据此按当前状态重算圆角
-    private double _radiusHeight = IdleSize.Height;
+    private double _radiusHeight = IdleBaseSize.Height;
     private bool _radiusExpanded;
 
     // 岛体锚定方向：false = 贴工作区顶部（队列向下），true = 贴任务栏条带（队列向上）
@@ -242,7 +272,7 @@ public sealed partial class IslandWindow : Window
     // 窗口画布（内容区，逻辑像素，含透明 padding）。只在内容集合变化时扩容，永不缩小 ——
     // 悬停展开/收起全程不改窗口几何，否则 DWM 会用上一帧（旧客户区坐标）合成新窗口矩形，
     // 出现偏移 Δw/2 的「副本残影」。
-    private Size _canvas = new(MinCanvasWidth + Pad * 2, IdleSize.Height + Pad * 2);
+    private Size _canvas = new(MinCanvasWidth + Pad * 2, IdleBaseSize.Height + Pad * 2);
     // 最近一次应用（或将应用）到窗口的点击穿透形状（物理像素），用于逐帧去重。
     private List<ShapeRect> _hitRects = new();
     // 最近一次应用窗口尺寸时使用的缩放比，用于识别 DPI 变化。
@@ -389,6 +419,8 @@ public sealed partial class IslandWindow : Window
             _positionSlide = null;
             _watchdog?.Stop();
             _watchdog = null;
+            _strip?.Close();
+            _strip = null;
             _hoverIntent.Stop();
             _dropScroll.Stop();
             _dropExitGrace.Stop();
@@ -485,9 +517,33 @@ public sealed partial class IslandWindow : Window
         ApplyStyle();
         ApplyPositionMode();
         ApplyDropSetting();
+        ApplyScaleSettings();
         UpdateVisibility();
         EnsureCanvas();
         ApplyCanvasBounds();
+        UpdateFullscreenState(force: true);
+    }
+
+    /// <summary>
+    /// 读缩放设置：大岛缩放换了就重挂渲染缩放并重算画布；空闲小岛缩放换了就把空闲岛体改成新尺寸。
+    /// 全屏小色条的缩放在落位时现读，不在这里。
+    /// </summary>
+    private void ApplyScaleSettings()
+    {
+        double k = ReadScale(ScaleIslandKey);
+        if (Math.Abs(k - _islandScale) > 0.0005)
+        {
+            _islandScale = k;
+            ApplyScaleTransform();
+        }
+
+        var idle = IdleSize;
+        bool idleNow = ActiveLive == null && _tempContent == null && !_dropping && !_expanded;
+        if (idleNow && (Math.Abs(_currentIsland.Width - idle.Width) > 0.5 || Math.Abs(_currentIsland.Height - idle.Height) > 0.5))
+        {
+            AnimateIslandSize(idle, CollapseDuration);
+            ApplyCornerRadius(idle.Height, expanded: false);
+        }
     }
 
     /// <summary>主岛当前渲染尺寸（DIP）。聚光卡的飞入起点/收回终点按它做缩放比。</summary>
@@ -1530,7 +1586,7 @@ public sealed partial class IslandWindow : Window
         sb.Begin();
     }
 
-    private Size _currentTotalSize = IdleSize;
+    private Size _currentTotalSize = IdleBaseSize;
 
     /// <summary>
     /// 尺寸动画的缓动。岛体一贯是"回弹"（BackEase EaseOut）；临时内容例外 ——
@@ -1682,7 +1738,30 @@ public sealed partial class IslandWindow : Window
 
     #region 窗口位置 / 可见性
 
-    private double Scale => Win32.GetDpiForWindow(_hwnd) / 96.0;
+    /// <summary>系统 DPI 比例（窗口所在屏）。</summary>
+    private double DpiScale => Win32.GetDpiForWindow(_hwnd) / 96.0;
+
+    /// <summary>大岛缩放比（island.scale.island）。</summary>
+    private double _islandScale = 1.0;
+
+    /// <summary>
+    /// DIP → 物理像素的总系数 = DPI × 大岛缩放。整套几何（画布、落点、形状、悬停判定）都从它算；
+    /// XAML 侧由 <see cref="ApplyScaleTransform"/> 给岛体栈挂等比渲染缩放，两边保持一致。
+    /// </summary>
+    private double Scale => DpiScale * _islandScale;
+
+    /// <summary>
+    /// 岛体栈等比缩放：窗口客户区的布局尺寸是「物理像素 ÷ DPI」= 画布 × 缩放，
+    /// 所以栈以锚定侧为原点缩放，边距也同比缩放，渲染结果恰好落在 <see cref="Scale"/> 算出的位置。
+    /// </summary>
+    private void ApplyScaleTransform()
+    {
+        double k = _islandScale;
+        IslandStack.RenderTransform = new ScaleTransform { ScaleX = k, ScaleY = k };
+        double ox = _horizontal switch { HorizontalLeft => 0.0, HorizontalRight => 1.0, _ => 0.5 };
+        IslandStack.RenderTransformOrigin = new Point(ox, _bottomAnchored ? 1.0 : 0.0);
+        IslandStack.Margin = _bottomAnchored ? new Thickness(0, 0, 0, Pad * k) : new Thickness(0, Pad * k, 0, 0);
+    }
 
     /// <summary>
     /// 应用 island.position / island.horizontal：岛体在画布内锚定顶部（队列向下）或底部（队列向上）。
@@ -1711,7 +1790,6 @@ public sealed partial class IslandWindow : Window
 
         // 岛体锚定到画布的另一侧，队列面板换到主岛的另一边
         IslandStack.VerticalAlignment = bottom ? VerticalAlignment.Bottom : VerticalAlignment.Top;
-        IslandStack.Margin = bottom ? new Thickness(0, 0, 0, Pad) : new Thickness(0, Pad, 0, 0);
         Grid.SetRow(IslandRoot, bottom ? 1 : 0);
         Grid.SetRow(QueuePanel, bottom ? 0 : 1);
 
@@ -1727,6 +1805,7 @@ public sealed partial class IslandWindow : Window
         IslandStack.HorizontalAlignment = align;
         IslandRoot.HorizontalAlignment = align;
         QueuePanel.HorizontalAlignment = align;
+        ApplyScaleTransform();
 
         // 已展开时按新方向重建队列（卡片顺序镜像：最先入队的活动仍离岛体最近）
         if (_expanded) BuildQueue();
@@ -2179,6 +2258,7 @@ public sealed partial class IslandWindow : Window
     /// </summary>
     private void WatchdogTick()
     {
+        UpdateFullscreenState();
         HealTopmost();
 
         // 锚定屏漂移自愈（两种位置模式都要）：热插拔事件在某些环境不广播（远程桌面、驱动更新、
@@ -2299,6 +2379,7 @@ public sealed partial class IslandWindow : Window
         if (_windowPhysW <= 0 || _windowPhysH <= 0) return;
 
         var s = Scale;
+        double dpi = DpiScale;      // TransformToVisual 的结果已含栈的渲染缩放，只差 DPI
         var rects = new List<ShapeRect>(QueueVisibleCards + 2);
 
         // 主岛（空闲 / 活动 / 临时消息都走这里）：形状必须跟随岛体「当前渲染尺寸」。
@@ -2315,8 +2396,8 @@ public sealed partial class IslandWindow : Window
             var box = card.TransformToVisual(RootGrid)
                           .TransformBounds(new Rect(0, 0, card.ActualWidth, card.ActualHeight));
             rects.Add(GrowShape(new ShapeRect(
-                (int)Math.Round(box.X * s), (int)Math.Round(box.Y * s),
-                (int)Math.Round((box.X + box.Width) * s), (int)Math.Round((box.Y + box.Height) * s),
+                (int)Math.Round(box.X * dpi), (int)Math.Round(box.Y * dpi),
+                (int)Math.Round((box.X + box.Width) * dpi), (int)Math.Round((box.Y + box.Height) * dpi),
                 (int)Math.Round(card.CornerRadius.TopLeft * s)), s));
         }
 
@@ -2400,12 +2481,147 @@ public sealed partial class IslandWindow : Window
             (int)Math.Round(IslandRoot.CornerRadius.TopLeft * scale));
     }
 
+    #region 全屏应用：隐藏 / 小色条 / 照常
+
+    private bool _fullscreen;
+    /// <summary>strip 模式下鼠标靠近色条后，岛体临时现身。</summary>
+    private bool _fsPeek;
+    private long _fsPeekLastOverAt;
+    private EdgeStripWindow? _strip;
+
+    private string FullscreenMode
+    {
+        get
+        {
+            var v = _settings.Get(FullscreenKey, FullscreenStrip) ?? FullscreenStrip;
+            return v.Equals(FullscreenHide, StringComparison.OrdinalIgnoreCase) ? FullscreenHide
+                 : v.Equals(FullscreenNormal, StringComparison.OrdinalIgnoreCase) ? FullscreenNormal
+                 : FullscreenStrip;
+        }
+    }
+
+    /// <summary>全屏应用在前台、且设置要求避让时，岛体不显示（strip 模式下色条被靠近后临时现身除外）。</summary>
+    private bool FullscreenSuppressed => _fullscreen && !_fsPeek && FullscreenMode != FullscreenNormal;
+
+    /// <summary>
+    /// 看门狗每拍调用：检测全屏、推进「靠近色条 → 岛体现身 → 离开后收回」，并同步色条窗口。
+    /// 只在状态变化时才动窗口；检测本身是几次 Win32 查询，120ms 一次的成本可以忽略。
+    /// </summary>
+    private void UpdateFullscreenState(bool force = false)
+    {
+        string mode = FullscreenMode;
+        bool fs = mode != FullscreenNormal && Win32.IsFullscreenForeground(ToRect(ResolveDisplay().OuterBounds));
+        bool changed = fs != _fullscreen;
+        _fullscreen = fs;
+
+        if (!fs || mode != FullscreenStrip)
+        {
+            if (_fsPeek) { _fsPeek = false; changed = true; }
+        }
+        else if (!_fsPeek)
+        {
+            if (!_spotlightOccluded && CursorNearStrip())
+            {
+                _fsPeek = true;
+                _fsPeekLastOverAt = Environment.TickCount64;
+                changed = true;
+            }
+        }
+        else
+        {
+            if (IsCursorOverIsland() || CursorNearStrip()) _fsPeekLastOverAt = Environment.TickCount64;
+            else if (Environment.TickCount64 - _fsPeekLastOverAt > FullscreenPeekGraceMs && !_dropping)
+            {
+                _fsPeek = false;
+                changed = true;
+            }
+        }
+
+        if (!changed && !force)
+        {
+            // 色条在场期间岛体换位置/缩放/显示器后也要跟上：落位本身只是一次 MoveAndResize，状态不变时不重复做
+            return;
+        }
+
+        if (_fsPeek && changed && _windowPhysW > 0)
+        {
+            UpdateVisibility();
+            if (_shown)
+            {
+                _hover = true;
+                _hoverGuard.Start();
+                OnHoverEnter();
+            }
+        }
+        else
+        {
+            if (FullscreenSuppressed && _expanded)
+            {
+                _hover = false;
+                _hoverGuard.Stop();
+                OnHoverExit();
+            }
+            UpdateVisibility();
+        }
+
+        SyncStrip();
+    }
+
+    /// <summary>色条的屏幕矩形（物理像素）：贴目标屏顶/底边，横向跟着岛体的水平落点。</summary>
+    private Win32.RECT StripRect()
+    {
+        var outer = ToRect(ResolveDisplay().OuterBounds);
+        double dpi = DpiScale;
+        double k = ReadScale(ScaleStripKey);
+        int w = Math.Max(8, (int)Math.Round(EdgeStripWindow.BaseSize.Width * k * dpi));
+        int h = Math.Max(3, (int)Math.Round(EdgeStripWindow.BaseSize.Height * k * dpi));
+
+        double centerX = (outer.Left + outer.Right) / 2.0;
+        if (_windowPhysW > 0)
+        {
+            var r = MainIslandScreenRect();
+            double c = (r.Left + r.Right) / 2.0;
+            if (c > outer.Left && c < outer.Right) centerX = c;
+        }
+
+        int x = (int)Math.Round(Math.Clamp(centerX - w / 2.0, outer.Left, outer.Right - w));
+        int y = _bottomAnchored ? outer.Bottom - h : outer.Top;
+        return new Win32.RECT { Left = x, Top = y, Right = x + w, Bottom = y + h };
+    }
+
+    private bool CursorNearStrip()
+    {
+        var r = StripRect();
+        int reach = (int)Math.Round(StripReachDip * DpiScale);
+        Win32.GetCursorPos(out var pt);
+        int top = _bottomAnchored ? r.Top - reach : r.Top - 1;
+        int bottom = _bottomAnchored ? r.Bottom + 1 : r.Bottom + reach;
+        return pt.X >= r.Left - reach && pt.X <= r.Right + reach && pt.Y >= top && pt.Y <= bottom;
+    }
+
+    private void SyncStrip()
+    {
+        bool want = _fullscreen && !_fsPeek && FullscreenMode == FullscreenStrip && !_spotlightOccluded;
+        if (!want)
+        {
+            _strip?.HideStrip();
+            return;
+        }
+
+        _strip ??= new EdgeStripWindow();
+        var r = StripRect();
+        _strip.ShowAt(r.Left, r.Top, r.Right - r.Left, r.Bottom - r.Top);
+    }
+
+    #endregion
+
     private void UpdateVisibility(bool force = false)
     {
         bool hideIdle = _settings.Get("island.hideWhenIdle", false);
         bool visible = _settings.Get("island.visible", true)
                        && !(_bottomAnchored && _taskbarHidden)
                        && !_spotlightOccluded
+                       && !FullscreenSuppressed
                        // 投放会话期间必须留在屏幕上：用户正拖着文件对着岛
                        && !(hideIdle && ActiveLive == null && _tempContent == null && !_dropping);
         if (!force && visible == _shown) return;

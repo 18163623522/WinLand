@@ -893,6 +893,58 @@ internal static partial class Win32
         return data.rc;
     }
 
+    // ---- 全屏应用检测（全屏时岛可隐藏 / 缩成贴边小色条）----
+
+    [LibraryImport("user32.dll")]
+    private static partial nint GetForegroundWindow();
+
+    [LibraryImport("user32.dll")]
+    private static partial uint GetWindowThreadProcessId(nint hWnd, out uint lpdwProcessId);
+
+    [LibraryImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static partial bool IsIconic(nint hWnd);
+
+    [LibraryImport("shell32.dll")]
+    private static partial int SHQueryUserNotificationState(out int pquns);
+
+    private const long WS_CAPTION_BITS = 0x00C00000;
+
+    /// <summary>
+    /// 前台窗口是否正在「全屏」占满给定显示器外框：独占全屏 / 演示模式（系统通知状态），
+    /// 或没有标题栏、矩形覆盖整块屏的无边框全屏。带标题栏的最大化窗口（任务栏自动隐藏时矩形也会盖满屏）不算。
+    /// 桌面、任务栏、本进程窗口（聚光卡覆盖窗）一律不算。
+    /// </summary>
+    public static bool IsFullscreenForeground(RECT display)
+    {
+        var fg = GetForegroundWindow();
+        if (fg == nint.Zero || !IsWindowVisible(fg) || IsIconic(fg)) return false;
+
+        GetWindowThreadProcessId(fg, out uint pid);
+        if (pid == (uint)Environment.ProcessId) return false;
+
+        var name = new char[64];
+        int len = GetClassName(fg, name, name.Length);
+        string cls = len > 0 ? new string(name, 0, len) : "";
+        if (cls is "Progman" or "WorkerW" or "Shell_TrayWnd" or "Shell_SecondaryTrayWnd") return false;
+
+        if (!GetWindowRect(fg, out var r)) return false;
+        bool covers = r.Left <= display.Left && r.Top <= display.Top
+                      && r.Right >= display.Right && r.Bottom >= display.Bottom;
+
+        if (covers)
+        {
+            long style = (long)GetWindowLongPtr(fg, GWL_STYLE);
+            if ((style & WS_CAPTION_BITS) != WS_CAPTION_BITS) return true;
+        }
+
+        // 独占全屏 / 演示模式：窗口矩形不一定盖满，但必须与目标屏有重叠
+        if (SHQueryUserNotificationState(out int state) == 0 && (state == 3 || state == 4))
+            return MinOverlap(r, display) > 0;
+
+        return false;
+    }
+
     // ---- 样式守卫：AppWindow/presenter 会反复把 WS_DLGFRAME/WS_SYSMENU 写回 GWL_STYLE（白描边），
     // 子类化拦截 WM_STYLECHANGING，从根上过滤掉边框样式位 ----
 

@@ -32,6 +32,7 @@ public sealed partial class GeneralSettingsPage : UserControl
     private ChoiceCard[] _styleCards = Array.Empty<ChoiceCard>();
     private ChoiceCard[] _materialCards = Array.Empty<ChoiceCard>();
     private ChoiceCard[] _autoStartCards = Array.Empty<ChoiceCard>();
+    private ChoiceCard[] _fullscreenCards = Array.Empty<ChoiceCard>();
     private ChoiceCard[] _displayCards = Array.Empty<ChoiceCard>();
     /// <summary>显示器卡片的顺序键（index 0 固定是 auto，其余与枚举结果一一对应）。</summary>
     private string[] _displayKeys = Array.Empty<string>();
@@ -51,6 +52,10 @@ public sealed partial class GeneralSettingsPage : UserControl
         HoverDelaySlider.Value = _settings.Get(HoverDelayKey, 0.0);
         HoverDelaySlider.IsEnabled = HoverExpandToggle.IsOn;
         BounceToggle.IsOn = _settings.Get(BounceKey, true);
+
+        ScaleIslandSlider.Value = _settings.Get("island.scale.island", 100);
+        ScaleIdleSlider.Value = _settings.Get("island.scale.idle", 100);
+        ScaleStripSlider.Value = _settings.Get("island.scale.strip", 100);
 
         LoadOffsetControl();
         HorizontalOffsetSlider.Value = _settings.Get(HorizontalOffsetKey, 0.0);
@@ -112,6 +117,16 @@ public sealed partial class GeneralSettingsPage : UserControl
             ChoiceCard.Build("autostart.admin", null, "管理员权限自启动", "登录后以管理员身份静默启动（需一次 UAC 授权）", () => PickAutoStart(AutoStartMode.Admin)),
         };
         ChoiceCard.FillRow(AutoStartCards, _autoStartCards);
+
+        string fsMode = _settings.Get("island.fullscreen", "strip");
+        _fullscreenCards = new[]
+        {
+            ChoiceCard.Build("fullscreen.strip", null, "显示小色条", "隐藏岛体，屏幕边缘留一条色条，鼠标靠近即展开", () => PickFullscreen("strip")),
+            ChoiceCard.Build("fullscreen.hide", null, "完全隐藏", "全屏期间岛体与色条都不显示", () => PickFullscreen("hide")),
+            ChoiceCard.Build("fullscreen.normal", null, "正常显示", "不避让全屏，岛体照常置顶显示", () => PickFullscreen("normal")),
+        };
+        ChoiceCard.FillRow(FullscreenCards, _fullscreenCards);
+        Select(_fullscreenCards, fsMode switch { "hide" => 1, "normal" => 2, _ => 0 });
 
         RebuildDisplayCards();
 
@@ -394,6 +409,22 @@ public sealed partial class GeneralSettingsPage : UserControl
     {
         if (_loading) return;
         _settings.Set(HorizontalOffsetKey, HorizontalOffsetSlider.Value);
+    }
+
+    private void PickFullscreen(string mode)
+    {
+        if (_loading) return;
+        Select(_fullscreenCards, mode switch { "hide" => 1, "normal" => 2, _ => 0 });
+        _settings.Set("island.fullscreen", mode);
+    }
+
+    private void ScaleSlider_ValueChanged(object sender, RangeBaseValueChangedEventArgs e)
+    {
+        if (_loading) return;
+        string? key = ReferenceEquals(sender, ScaleIslandSlider) ? "island.scale.island"
+                    : ReferenceEquals(sender, ScaleIdleSlider) ? "island.scale.idle"
+                    : ReferenceEquals(sender, ScaleStripSlider) ? "island.scale.strip" : null;
+        if (key != null) _settings.Set(key, (int)Math.Round(((Slider)sender).Value));
     }
 
     private void RunOnboarding_Click(object sender, RoutedEventArgs e) => _openOnboarding?.Invoke();
