@@ -686,6 +686,7 @@ public sealed partial class IslandWindow : Window
         _mainSurface.ApplyStyle(_style, _materialApplied, _light);
         ApplyCornerRadius(_radiusHeight, _radiusExpanded);
         RefreshQueueStyle();
+        UpdateHitRegion(force: true);
         _idleDot.Fill = new SolidColorBrush(IslandStyle.IdleDotColor(_style, _light));
         _log.Debug($"外观已应用：风格 {_style.ToValue()}，材质 {_material.ToValue()}"
                    + $"{(_materialApplied ? "" : "（不可用，已回退纯色底衬）")}，岛体明暗 {(_light ? "浅色" : "深色")}。");
@@ -2455,9 +2456,13 @@ public sealed partial class IslandWindow : Window
     /// 按外扩量放大形状矩形（圆角半径同增，弧线与岛体保持同心）：硬边界落到岛体渲染范围之外，
     /// 圆角与 1px 描边的抗锯齿才不会被 1-bit 掩码切碎（见 <see cref="ShapeSlackDip"/>）。
     /// </summary>
-    private static ShapeRect GrowShape(ShapeRect r, double scale)
+    private ShapeRect GrowShape(ShapeRect r, double scale)
     {
-        int slack = Math.Max(2, (int)Math.Ceiling(ShapeSlackDip * scale));
+        // Fluent + 系统材质：外扩圈里会露出未压纱的材质（一圈浅边），所以只留 1 物理像素；
+        // 其余情况外扩圈是透明的，保持 2 物理像素以保住抗锯齿。
+        int min = _style == IslandStyleKind.Fluent && _materialApplied ? 1 : 2;
+        int slack = Math.Max(min, (int)Math.Ceiling(ShapeSlackDip * scale));
+        if (min == 1) slack = Math.Max(1, (int)Math.Round(ShapeSlackDip * scale * 0.5));
         return new ShapeRect(r.X1 - slack, r.Y1 - slack, r.X2 + slack, r.Y2 + slack, r.Radius + slack);
     }
 
