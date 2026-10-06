@@ -15,6 +15,8 @@ namespace WinIsland.Modules.Media;
 /// </summary>
 public sealed partial class MediaIslandView : UserControl, IMorphView
 {
+    public IReadOnlyList<UIElement> InteractiveElements { get; }
+
     private readonly Storyboard _barsStoryboard = new();
     private bool _barsRunning;
     private Storyboard? _morphStoryboard;
@@ -34,6 +36,7 @@ public sealed partial class MediaIslandView : UserControl, IMorphView
         ViewModel = vm;
         _levelMonitor = levelMonitor;
         InitializeComponent();
+        InteractiveElements = new UIElement[] { ProgressArea };
 
         BuildBarsAnimation();
         Loaded += (_, _) => SyncBars();

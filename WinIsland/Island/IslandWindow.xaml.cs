@@ -108,6 +108,10 @@ public sealed partial class IslandWindow : Window
     private const int TapSuppressMs = 400;
     /// <summary>翻页位记住的那张卡（插件 id）：纯界面状态，只用于「下次展开还看这张」。</summary>
     private const string QueueTailKey = "island.queueTail";
+    private const string QueueOrderKey = "island.queueOrder";
+    private const string SurfaceOpacityKey = "island.opacity";
+    private const string CustomRadiusEnabledKey = "island.radius.enabled";
+    private const string CustomRadiusKey = "island.radius";
     private const double DefaultOffset = 6.0;
     /// <summary>靠左/靠右时距条带（或工作区）边缘的间距。Win11 图标居中排列，任务栏左端通常是空的。</summary>
     private const double EdgeInset = 12;
@@ -221,6 +225,9 @@ public sealed partial class IslandWindow : Window
     /// <summary>已经就"材质不可用"告过警的材质：系统不支持时每次主题切换都会重试，日志不该跟着刷屏。</summary>
     private IslandMaterialKind? _warnedMaterial;
     private bool _styleApplied;
+    private double _surfaceOpacity = 1;
+    private double? _customRadius;
+    private bool _textInputEnabled;
     // 窗口级系统材质（仅 Fluent）：不支持时退回纯色底衬
     private IslandBackdrop? _backdrop;
     private bool _backdropOwned;
@@ -280,9 +287,18 @@ public sealed partial class IslandWindow : Window
 
     // 主活动（优先级最高）
     private IslandLiveContent? ActiveLive => _live.Count > 0 ? _live[0].Content : null;
-    // 队列活动（除主活动外的其余活动）
+    // 队列活动（主岛仍由最高优先级决定；展开队列可以独立反转顺序）
     private IReadOnlyList<(string Owner, IslandLiveContent Content)> QueueItems
-        => _live.Count > 1 ? _live.Skip(1).ToList() : Array.Empty<(string, IslandLiveContent)>();
+    {
+        get
+        {
+            if (_live.Count <= 1) return Array.Empty<(string, IslandLiveContent)>();
+            var items = _live.Skip(1);
+            return string.Equals(_settings.Get(QueueOrderKey, "priority"), "reverse", StringComparison.OrdinalIgnoreCase)
+                ? items.Reverse().ToList()
+                : items.ToList();
+        }
+    }
 
     /// <summary>临时消息在队列里的"主人"标识（不是插件 id，翻页位永远不会落到它身上）。</summary>
     private const string TempCardOwner = "(message)";
@@ -296,7 +312,7 @@ public sealed partial class IslandWindow : Window
         if (_tempCard == null) return QueueItems;
 
         var items = new List<(string Owner, IslandLiveContent Content)>(_live.Count) { (TempCardOwner, _tempCard) };
-        for (int i = 1; i < _live.Count; i++) items.Add(_live[i]);
+        items.AddRange(QueueItems);
         return items;
     }
 
@@ -348,6 +364,7 @@ public sealed partial class IslandWindow : Window
         _presenter.IsAlwaysOnTop = false;
         _presenter.IsAlwaysOnTop = true;
         Win32.MakeIslandStyle(_hwnd);
+        Win32.SetIslandInputEnabled(_hwnd, _textInputEnabled);
 
         _idleDot = new Ellipse
         {
@@ -451,6 +468,7 @@ public sealed partial class IslandWindow : Window
         }
 
         SortLive();
+        UpdateTextInputWindowStyle();
 
         // 内容集合变化时才允许扩容画布，之后悬停展开/收起不再动窗口几何
         EnsureCanvas();
@@ -674,17 +692,24 @@ public sealed partial class IslandWindow : Window
         var material = IslandStyle.ParseMaterial(_settings.Get(IslandStyle.MaterialKey, IslandStyle.AcrylicValue));
         _systemLight = SystemTheme.IsLight;
         bool light = IslandStyle.IsLightChrome(style, _systemLight);
-        if (_styleApplied && style == _style && material == _material && light == _light) return;
+        double opacity = Math.Clamp(_settings.Get(SurfaceOpacityKey, 100), 10, 100) / 100.0;
+        double? radius = _settings.Get(CustomRadiusEnabledKey, false)
+            ? Math.Clamp(_settings.Get(CustomRadiusKey, 12), 0, 32)
+            : null;
+        bool chromeChanged = !_styleApplied || style != _style || material != _material || light != _light;
+        if (!chromeChanged && Math.Abs(opacity - _surfaceOpacity) < 0.0005 && radius == _customRadius) return;
 
         _style = style;
         _material = material;
         _light = light;
+        _surfaceOpacity = opacity;
+        _customRadius = radius;
         _styleApplied = true;
 
         RootGrid.RequestedTheme = IsLightChrome ? ElementTheme.Light : ElementTheme.Dark;
 
-        ApplyBackdrop();
-        _mainSurface.ApplyStyle(_style, _materialApplied, _light);
+        if (chromeChanged) ApplyBackdrop();
+        _mainSurface.ApplyStyle(_style, _materialApplied, _light, _surfaceOpacity);
         ApplyCornerRadius(_radiusHeight, _radiusExpanded);
         RefreshQueueStyle();
         UpdateHitRegion(force: true);
@@ -784,11 +809,11 @@ public sealed partial class IslandWindow : Window
     {
         foreach (var surface in _queueSurfaces)
         {
-            surface.ApplyStyle(_style, _materialApplied, _light);
-            surface.SetRadius(IslandStyle.ResolveQueueRadius(_style, surface.Border.Height));
+            surface.ApplyStyle(_style, _materialApplied, _light, _surfaceOpacity);
+            surface.SetRadius(IslandStyle.ResolveQueueRadius(_style, surface.Border.Height, _customRadius));
         }
 
-        _pager?.ApplyStyle(_style, _materialApplied, _light);
+        _pager?.ApplyStyle(_style, _materialApplied, _light, _surfaceOpacity);
     }
 
     public void ShowIsland()
@@ -1112,8 +1137,8 @@ public sealed partial class IslandWindow : Window
         surface.MorphView = content.MorphView;
         surface.Border.Width = width;
         surface.Border.Height = height;
-        surface.ApplyStyle(_style, _materialApplied, _light);
-        surface.SetRadius(IslandStyle.ResolveQueueRadius(_style, height));
+        surface.ApplyStyle(_style, _materialApplied, _light, _surfaceOpacity);
+        surface.SetRadius(IslandStyle.ResolveQueueRadius(_style, height, _customRadius));
         surface.SetContent(inner);
 
         // 队列卡片也是"那个插件的岛"：点它要触发它自己的 OnTap（通常就是打开它的聚光卡）。
@@ -1159,7 +1184,7 @@ public sealed partial class IslandWindow : Window
             QueuePagerSize,
             _bottomAnchored ? QueuePagerGlyphUp : QueuePagerGlyphDown,
             (_, _) => PageQueueTail());
-        pager.ApplyStyle(_style, _materialApplied, _light);
+        pager.ApplyStyle(_style, _materialApplied, _light, _surfaceOpacity);
         return pager;
     }
 
@@ -1526,7 +1551,7 @@ public sealed partial class IslandWindow : Window
     {
         _radiusHeight = height;
         _radiusExpanded = expanded;
-        _mainSurface.SetRadius(IslandStyle.ResolveRadius(_style, height, expanded));
+        _mainSurface.SetRadius(IslandStyle.ResolveRadius(_style, height, expanded, _customRadius));
     }
 
     /// <summary>
@@ -2638,6 +2663,7 @@ public sealed partial class IslandWindow : Window
             _presenter.IsAlwaysOnTop = false;
             _presenter.IsAlwaysOnTop = true;
             Win32.MakeIslandStyle(_hwnd);
+            Win32.SetIslandInputEnabled(_hwnd, _textInputEnabled);
             // MakeIslandStyle 里的 SWP_FRAMECHANGED 可能让窗口形状失效，重新断言一次
             UpdateHitRegion(force: true);
         }
@@ -2692,28 +2718,40 @@ public sealed partial class IslandWindow : Window
     #region 指针交互 — 主程序统一处理
 
     private void IslandRoot_PointerEntered(object sender, PointerRoutedEventArgs e)
-    {
-        // 投放会话期间指针被源进程捕获，拖拽开始时还会连带产生一次 Exited/Entered，
-        // 这些都不是"用户在悬停岛体"：一律不参与悬停裁决
-        if (_dropping) return;
+        => TrackIslandPointer(e);
 
-        // 触控没有悬停语义（按下即进入、抬起即退出），不参与悬停状态：
-        // 触控的展开由 IslandRoot_Tapped 里的 TouchExpand 负责。
-        if (!IsTouchPointer(e))
+    private void IslandRoot_PointerMoved(object sender, PointerRoutedEventArgs e)
+    {
+        if (!_hover) TrackIslandPointer(e);
+    }
+
+    private void TrackIslandPointer(PointerRoutedEventArgs e)
+    {
+        // OLE 拖放期间指针被源进程捕获；触控没有悬停语义。
+        if (_dropping || IsTouchPointer(e)) return;
+
+        // 按钮、滑块、文本框等由控件本身处理点击/焦点，不能因为指针经过它们而展开。
+        // 从控件移到岛体空白处时 PointerMoved 会接手正常悬停。
+        if (IsInteractiveSource(e.OriginalSource))
         {
-            _hover = true;
-            _hoverGuard.Start();
+            RestartTemporaryTimer();
+            return;
         }
 
+        _hover = true;
+        _hoverGuard.Start();
+        RestartTemporaryTimer();
+        BeginHoverExpand();
+    }
+
+    private void RestartTemporaryTimer()
+    {
         if (_tempContent != null)
         {
             // 悬停期间消息不过期；岛体展开后它改挂队列首卡（见 OnHoverEnter），主岛让给活动内容
             _tempTimer.Stop();
             _tempTimer.Start();
         }
-
-        if (IsTouchPointer(e)) return;
-        BeginHoverExpand();
     }
 
     private void IslandRoot_PointerExited(object sender, PointerRoutedEventArgs e)
@@ -2735,10 +2773,7 @@ public sealed partial class IslandWindow : Window
 
     private void IslandStack_PointerEntered(object sender, PointerRoutedEventArgs e)
     {
-        if (_dropping) return;
-        if (IsTouchPointer(e)) return;
-        _hover = true;
-        _hoverGuard.Start();
+        TrackIslandPointer(e);
     }
 
     private void IslandStack_PointerExited(object sender, PointerRoutedEventArgs e)
@@ -2866,17 +2901,36 @@ public sealed partial class IslandWindow : Window
         => e.Pointer.PointerDeviceType == PointerDeviceType.Touch;
 
     /// <summary>点击源是否落在"自己处理点击"的控件里（按钮、滑块、开关、可拖动的进度条等）。</summary>
-    private static bool IsInteractiveSource(object? source)
+    private bool IsInteractiveSource(object? source)
     {
         for (var element = source as DependencyObject; element != null; element = VisualTreeHelper.GetParent(element))
         {
-            if (element is ButtonBase or Slider or ToggleSwitch or CheckBox or ComboBox or TextBox or ProgressBar)
+            if ((element is Control control && control.IsTabStop)
+                || element is ButtonBase or Slider or ToggleSwitch or CheckBox or ComboBox
+                    or TextBox or PasswordBox or RichEditBox or AutoSuggestBox
+                    or DatePicker or TimePicker or ProgressBar or ScrollBar)
+            {
+                return true;
+            }
+
+            if (element is UIElement interactive
+                && _live.Any(item => item.Content.InteractiveElements?.Any(candidate => ReferenceEquals(candidate, interactive)) == true))
             {
                 return true;
             }
         }
 
         return false;
+    }
+
+    private void UpdateTextInputWindowStyle()
+    {
+        bool enabled = _live.Any(item => item.Content.AcceptsTextInput);
+        if (_textInputEnabled == enabled) return;
+
+        _textInputEnabled = enabled;
+        Win32.SetIslandInputEnabled(_hwnd, enabled);
+        UpdateHitRegion(force: true);
     }
 
     private void HoverGuardTick()
@@ -3660,10 +3714,11 @@ public sealed partial class IslandWindow : Window
         /// <summary>卡片内容的形态视图（可能为 null，例如只有双视图的插件）。</summary>
         public IMorphView? MorphView { get; set; }
 
-        public void ApplyStyle(IslandStyleKind style, bool materialApplied, bool light)
+        public void ApplyStyle(IslandStyleKind style, bool materialApplied, bool light, double opacity)
         {
             var stroke = IslandStyle.CreateStroke(style, light);
-            Border.Background = IslandStyle.CreateSurfaceFill(style, materialApplied, light);
+            Border.Background = IslandStyle.CreateSurfaceFill(style, materialApplied, light, opacity);
+            if (stroke != null) stroke.Opacity = opacity;
             Border.BorderBrush = stroke;
             Border.BorderThickness = stroke == null ? new Thickness(0) : new Thickness(1);
 
@@ -3724,10 +3779,11 @@ public sealed partial class IslandWindow : Window
         /// <summary>面板里的那个 Border：点击形状按它的矩形与圆角生成。</summary>
         public Border Border { get; }
 
-        public void ApplyStyle(IslandStyleKind style, bool materialApplied, bool light)
+        public void ApplyStyle(IslandStyleKind style, bool materialApplied, bool light, double opacity)
         {
             var stroke = IslandStyle.CreateStroke(style, light);
-            Border.Background = IslandStyle.CreateSurfaceFill(style, materialApplied, light);
+            Border.Background = IslandStyle.CreateSurfaceFill(style, materialApplied, light, opacity);
+            if (stroke != null) stroke.Opacity = opacity;
             Border.BorderBrush = stroke;
             Border.BorderThickness = stroke == null ? new Thickness(0) : new Thickness(1);
             _glyph.Foreground = IslandStyle.CreateMessageTextBrush(light);

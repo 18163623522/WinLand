@@ -390,6 +390,18 @@ internal static partial class Win32
         RemoveDwmBorder(hwnd);
     }
 
+    /// <summary>让声明支持文本输入的岛窗口可激活；其余时间保持原有的不抢焦点行为。</summary>
+    public static void SetIslandInputEnabled(nint hwnd, bool enabled)
+    {
+        var ex = (uint)GetWindowLongPtr(hwnd, GWL_EXSTYLE);
+        var updated = enabled ? ex & ~WS_EX_NOACTIVATE : ex | WS_EX_NOACTIVATE;
+        if (updated == ex) return;
+
+        SetWindowLongPtr(hwnd, GWL_EXSTYLE, (nint)updated);
+        SetWindowPos(hwnd, HWND_TOPMOST, 0, 0, 0, 0,
+            SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE | SWP_FRAMECHANGED);
+    }
+
     /// <summary>
     /// 聚光卡的全屏覆盖窗样式：与岛体同款（无边框弹出 + 工具窗口 + 不抢焦点 + 置顶 + 真透明）。
     /// 三层白边防护与 alpha 合成对覆盖窗同样必要，所以共用同一份实现，只是名字点明用途。

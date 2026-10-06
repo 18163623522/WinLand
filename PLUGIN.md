@@ -108,7 +108,7 @@ Dispose/卸载 → Unloading → 程序集请求卸载并验证回收
 | `HostVersion` / `Dispatcher` | 宿主版本 / UI 线程调度器 |
 | `Log` | `Debug/Info/Warn/Error`，写入插件日志（内存环形缓冲 + 文件） |
 | `Settings` | **作用域化**设置存储，键自动加 `<id>.` 前缀（`Settings.Set("enabled", true)` → `hw-monitor.enabled`） |
-| `Island.SetContent(content)` | 注册常驻内容（`null` 取消）。owner 由宿主绑定为插件 Id |
+| `Island.SetContent(content)` | 注册常驻内容（`null` 取消）。owner 由宿主绑定为插件 Id；有可编辑控件时设置 `AcceptsTextInput = true` |
 | `Island.OpenSpotlight(spotlight)` / `Island.CloseSpotlight()` | 打开 / 收起「超级展开」聚光卡（见下方同名小节） |
 | `Island.ShowMessage(msg)` | 临时消息（标题 + 正文 + 图标 + 时长）。宽度跟随内容（152..340）、有正文时是 46 高的小卡；不给 `AccentColor` 时用与空闲点同色的中性图标芯片，而不是默认蓝色 |
 | `Island.Show(uiElement, size, duration)` | 临时展示任意控件 |
@@ -147,6 +147,33 @@ Context.Island.SetContent(new IslandLiveContent
 队列还有别的活动时，末尾会出现一个圆形切换按钮，点一下把翻页位换成下一个（循环），
 所以**排在后面的活动也一定翻得到**，优先级只决定顺序。
 宿主可以在「设置 → 插件管理」里用 `plugin.<pluginId>.priority` 覆盖你声明的 `Priority`，所以不要依赖固定顺序。
+「设置 → 通用 → 展开队列顺序」可以只反转展开队列；主岛仍由最高优先级内容占据。
+
+### 岛上文字输入
+
+插件可以直接把 WinUI 文本输入控件放进常驻内容（例如 `TextBox`），并将 `IslandLiveContent.AcceptsTextInput` 设为 `true`。
+这会让宿主在该插件有活动内容时允许岛窗口接收键盘焦点；移除最后一个声明输入的活动后，窗口恢复默认的不抢焦点行为。
+按钮、滑块、文本框等交互控件不会因鼠标经过而触发展开，也不会把控件自身的点击转成岛体 `OnTap`。
+自绘的点击区域可通过 `InteractiveElements` 列出对应的 `UIElement`，其后代也会沿用相同的交互保护。
+
+```csharp
+var query = new TextBox { PlaceholderText = "搜索…" };
+query.KeyDown += (_, e) =>
+{
+    if (e.Key != Windows.System.VirtualKey.Enter) return;
+    Search(query.Text);
+    e.Handled = true;
+};
+
+Context.Island.SetContent(new IslandLiveContent
+{
+    AcceptsTextInput = true,
+    CompactContent = query,
+    CompactSize = new Size(280, 40),
+});
+```
+
+此增量 API 需要宿主 ≥ 2.4.0；`api_version` 仍为 `2`，插件清单需设置 `min_host_version: "2.4.0"`。
 
 **尺寸由宿主统一**：展开态所有元素同宽（取所有活动里最大的展开宽度）、所有队列卡片同高（取**所有**队列活动里最高的一张 ——
 翻页位可能轮到任何一个），宿主会把卡片拉伸到这个统一尺寸。视图请用自适应布局（`Grid` 的 `*` 行列、`HorizontalAlignment/VerticalAlignment=Stretch`），

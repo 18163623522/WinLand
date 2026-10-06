@@ -117,8 +117,10 @@ public static class IslandStyle
         => IsLightChrome(ParseStyle(settings.Get(StyleKey, AppleValue)), SystemTheme.IsLight);
 
     /// <summary>岛体圆角：<paramref name="height"/> 为岛体高度，<paramref name="expanded"/> 表示展开大岛。</summary>
-    public static double ResolveRadius(IslandStyleKind style, double height, bool expanded)
+    public static double ResolveRadius(IslandStyleKind style, double height, bool expanded, double? customRadius = null)
     {
+        if (customRadius is { } radius) return Math.Min(Math.Max(0, radius), height / 2);
+
         if (style == IslandStyleKind.Fluent)
         {
             return Math.Min(expanded ? FluentExpandedRadius : FluentCompactRadius, height / 2);
@@ -128,8 +130,10 @@ public static class IslandStyle
     }
 
     /// <summary>队列卡片圆角。</summary>
-    public static double ResolveQueueRadius(IslandStyleKind style, double cardHeight)
-        => style == IslandStyleKind.Fluent
+    public static double ResolveQueueRadius(IslandStyleKind style, double cardHeight, double? customRadius = null)
+        => customRadius is { } radius
+            ? Math.Min(Math.Max(0, radius), cardHeight / 2)
+            : style == IslandStyleKind.Fluent
             ? Math.Min(FluentQueueRadius, cardHeight / 2)
             : AppleQueueRadius;
 
@@ -139,11 +143,15 @@ public static class IslandStyle
     /// 再叠白纱就成了平白板，那是"看不出材质"而不是"适配了浅色"。
     /// 材质不可用时退回接近不透明的纯色（深色 #202020 / 浅色 #F3F3F3），文字依旧可读。
     /// </summary>
-    public static SolidColorBrush CreateSurfaceFill(IslandStyleKind style, bool materialApplied, bool light)
+    public static SolidColorBrush CreateSurfaceFill(IslandStyleKind style, bool materialApplied, bool light, double opacity = 1)
     {
-        if (style == IslandStyleKind.Apple) return new SolidColorBrush(AppleSurface);
-        if (materialApplied) return new SolidColorBrush(Pick(light, FluentSurfaceDark, FluentSurfaceLight));
-        return new SolidColorBrush(Pick(light, FluentSolidSurfaceDark, FluentSolidSurfaceLight));
+        var brush = style == IslandStyleKind.Apple
+            ? new SolidColorBrush(AppleSurface)
+            : new SolidColorBrush(materialApplied
+                ? Pick(light, FluentSurfaceDark, FluentSurfaceLight)
+                : Pick(light, FluentSolidSurfaceDark, FluentSolidSurfaceLight));
+        brush.Opacity = Math.Clamp(opacity, 0, 1);
+        return brush;
     }
 
     /// <summary>岛体描边：仅 Fluent 使用 1px 细描边（深色主题浅描边、浅色主题深描边）。</summary>
