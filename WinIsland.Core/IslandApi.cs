@@ -23,6 +23,16 @@ public interface IMorphView
 public sealed record IslandLiveContent
 {
     public int Priority { get; init; }
+    /// <summary>
+    /// Set when this content contains keyboard input controls such as <see cref="Microsoft.UI.Xaml.Controls.TextBox"/>.
+    /// The host then allows the island window to activate so those controls can receive keyboard input.
+    /// </summary>
+    public bool AcceptsTextInput { get; init; }
+    /// <summary>
+    /// Optional custom interactive elements that should not trigger island hover expansion or the island's
+    /// <see cref="OnTap"/> callback. Standard WinUI controls are detected automatically.
+    /// </summary>
+    public IReadOnlyList<UIElement>? InteractiveElements { get; init; }
     public string? OwnerLabel { get; init; }
     public string? OwnerGlyph { get; init; }
     public Windows.UI.Color? OwnerAccent { get; init; }

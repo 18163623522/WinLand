@@ -17,6 +17,10 @@ public sealed partial class GeneralSettingsPage : UserControl
     private const string HoverDelayKey = "island.hoverDelay";
     private const string BounceKey = "island.bounce";
     private const string DisplayKey = "island.display";
+    private const string QueueOrderKey = "island.queueOrder";
+    private const string SurfaceOpacityKey = "island.opacity";
+    private const string CustomRadiusEnabledKey = "island.radius.enabled";
+    private const string CustomRadiusKey = "island.radius";
 
     private static readonly string[] HorizontalValues = { "center", "left", "right" };
 
@@ -31,6 +35,7 @@ public sealed partial class GeneralSettingsPage : UserControl
     private ChoiceCard[] _horizontalCards = Array.Empty<ChoiceCard>();
     private ChoiceCard[] _styleCards = Array.Empty<ChoiceCard>();
     private ChoiceCard[] _materialCards = Array.Empty<ChoiceCard>();
+    private ChoiceCard[] _queueOrderCards = Array.Empty<ChoiceCard>();
     private ChoiceCard[] _autoStartCards = Array.Empty<ChoiceCard>();
     private ChoiceCard[] _fullscreenCards = Array.Empty<ChoiceCard>();
     private ChoiceCard[] _displayCards = Array.Empty<ChoiceCard>();
@@ -56,6 +61,10 @@ public sealed partial class GeneralSettingsPage : UserControl
         ScaleIslandSlider.Value = _settings.Get("island.scale.island", 100);
         ScaleIdleSlider.Value = _settings.Get("island.scale.idle", 100);
         ScaleStripSlider.Value = _settings.Get("island.scale.strip", 100);
+        SurfaceOpacitySlider.Value = Math.Clamp(_settings.Get(SurfaceOpacityKey, 100), 10, 100);
+        CustomRadiusToggle.IsOn = _settings.Get(CustomRadiusEnabledKey, false);
+        CustomRadiusSlider.Value = Math.Clamp(_settings.Get(CustomRadiusKey, 12), 0, 32);
+        CustomRadiusSlider.IsEnabled = CustomRadiusToggle.IsOn;
 
         LoadOffsetControl();
         HorizontalOffsetSlider.Value = _settings.Get(HorizontalOffsetKey, 0.0);
@@ -97,6 +106,15 @@ public sealed partial class GeneralSettingsPage : UserControl
         ChoiceCard.FillRow(MaterialCards, _materialCards);
         Select(_materialCards, IslandStyle.IndexOf(material));
         SetMaterialCardsEnabled(style == IslandStyleKind.Fluent);
+
+        var queueOrder = _settings.Get(QueueOrderKey, "priority");
+        _queueOrderCards = new[]
+        {
+            ChoiceCard.Build("queue-order.priority", null, "优先级顺序", "从高到低排列", () => PickQueueOrder("priority")),
+            ChoiceCard.Build("queue-order.reverse", null, "反向顺序", "小岛仍显示最高优先级内容，大岛队列从低到高排列", () => PickQueueOrder("reverse")),
+        };
+        ChoiceCard.FillRow(QueueOrderCards, _queueOrderCards);
+        Select(_queueOrderCards, string.Equals(queueOrder, "reverse", StringComparison.OrdinalIgnoreCase) ? 1 : 0);
 
         _positionCards = new[]
         {
@@ -243,6 +261,13 @@ public sealed partial class GeneralSettingsPage : UserControl
         if (_loading) return;
         _settings.Set(IslandStyle.MaterialKey, material.ToValue());
         Select(_materialCards, IslandStyle.IndexOf(material));
+    }
+
+    private void PickQueueOrder(string order)
+    {
+        if (_loading) return;
+        _settings.Set(QueueOrderKey, order);
+        Select(_queueOrderCards, order == "reverse" ? 1 : 0);
     }
 
     private async void PickAutoStart(AutoStartMode mode)
@@ -425,6 +450,25 @@ public sealed partial class GeneralSettingsPage : UserControl
                     : ReferenceEquals(sender, ScaleIdleSlider) ? "island.scale.idle"
                     : ReferenceEquals(sender, ScaleStripSlider) ? "island.scale.strip" : null;
         if (key != null) _settings.Set(key, (int)Math.Round(((Slider)sender).Value));
+    }
+
+    private void SurfaceOpacitySlider_ValueChanged(object sender, RangeBaseValueChangedEventArgs e)
+    {
+        if (_loading) return;
+        _settings.Set(SurfaceOpacityKey, (int)Math.Round(SurfaceOpacitySlider.Value));
+    }
+
+    private void CustomRadiusToggle_Toggled(object sender, RoutedEventArgs e)
+    {
+        if (_loading) return;
+        CustomRadiusSlider.IsEnabled = CustomRadiusToggle.IsOn;
+        _settings.Set(CustomRadiusEnabledKey, CustomRadiusToggle.IsOn);
+    }
+
+    private void CustomRadiusSlider_ValueChanged(object sender, RangeBaseValueChangedEventArgs e)
+    {
+        if (_loading) return;
+        _settings.Set(CustomRadiusKey, (int)Math.Round(CustomRadiusSlider.Value));
     }
 
     private void RunOnboarding_Click(object sender, RoutedEventArgs e) => _openOnboarding?.Invoke();

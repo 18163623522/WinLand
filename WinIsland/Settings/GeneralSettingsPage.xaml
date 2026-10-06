@@ -40,6 +40,56 @@
         </Border>
 
         <Border Style="{StaticResource SettingsCardStyle}">
+            <StackPanel Spacing="12">
+                <TextBlock Text="表面不透明度 (%)" />
+                <TextBlock
+                    Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                    Style="{StaticResource CaptionTextBlockStyle}"
+                    Text="调整岛体与展开队列卡片的底衬透明度，不影响插件内容"
+                    TextWrapping="Wrap" />
+                <Slider
+                    x:Name="SurfaceOpacitySlider"
+                    Maximum="100"
+                    Minimum="10"
+                    StepFrequency="5"
+                    ValueChanged="SurfaceOpacitySlider_ValueChanged" />
+            </StackPanel>
+        </Border>
+
+        <Border Style="{StaticResource SettingsCardStyle}">
+            <StackPanel Spacing="8">
+                <Grid ColumnSpacing="16">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="Auto" />
+                    </Grid.ColumnDefinitions>
+                    <StackPanel Spacing="2" VerticalAlignment="Center">
+                        <TextBlock Text="自定义圆角" />
+                        <TextBlock
+                            Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                            Style="{StaticResource CaptionTextBlockStyle}"
+                            Text="对主岛和展开队列卡片使用统一圆角半径"
+                            TextWrapping="Wrap" />
+                    </StackPanel>
+                    <ToggleSwitch
+                        x:Name="CustomRadiusToggle"
+                        Grid.Column="1"
+                        MinWidth="0"
+                        VerticalAlignment="Center"
+                        OffContent=""
+                        OnContent=""
+                        Toggled="CustomRadiusToggle_Toggled" />
+                </Grid>
+                <Slider
+                    x:Name="CustomRadiusSlider"
+                    Maximum="32"
+                    Minimum="0"
+                    StepFrequency="1"
+                    ValueChanged="CustomRadiusSlider_ValueChanged" />
+            </StackPanel>
+        </Border>
+
+        <Border Style="{StaticResource SettingsCardStyle}">
             <Grid ColumnSpacing="16">
                 <Grid.ColumnDefinitions>
                     <ColumnDefinition Width="*" />
@@ -62,6 +112,18 @@
                     OnContent=""
                     Toggled="VisibleToggle_Toggled" />
             </Grid>
+        </Border>
+
+        <Border Style="{StaticResource SettingsCardStyle}">
+            <StackPanel Spacing="4">
+                <TextBlock Text="展开队列顺序" />
+                <TextBlock
+                    Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                    Style="{StaticResource CaptionTextBlockStyle}"
+                    Text="单独调整大岛中其他活动的排列；主岛仍由最高优先级活动占据"
+                    TextWrapping="Wrap" />
+                <Grid x:Name="QueueOrderCards" Margin="0,8,0,0" />
+            </StackPanel>
         </Border>
 
         <Border Style="{StaticResource SettingsCardStyle}">
