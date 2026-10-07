@@ -17,7 +17,7 @@ public sealed class IslandService
     {
         _island = island;
         _settings = settings;
-        _spotlight = new SpotlightHost(island, log);
+        _spotlight = new SpotlightHost(island, settings, log);
     }
 
     public event Action? SettingsPagesChanged;

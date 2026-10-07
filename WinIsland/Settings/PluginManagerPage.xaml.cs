@@ -185,11 +185,30 @@ public sealed partial class PluginManagerPage : UserControl
     }
 
     /// <summary>
-    /// 岛上优先级：写宿主键 <c>plugin.&lt;id&gt;.priority</c>（覆盖插件自己声明的优先级），留空表示用插件默认值。
+    /// 岛上优先级与展开优先级，两行竖排（避免横向挤占操作按钮）：
+    /// ① 优先级 → 宿主键 <c>plugin.&lt;id&gt;.priority</c>（覆盖插件声明的 <c>Priority</c>，决定小岛常驻）
+    /// ② 展开优先级 → 宿主键 <c>plugin.&lt;id&gt;.expandedPriority</c>
+    ///    （覆盖插件声明的 <c>ExpandedPriority</c>，只决定展开后的排列；留空＝与优先级相同，即旧行为）
     /// </summary>
     private UIElement BuildPriorityBox(PluginInfo plugin)
     {
-        var key = $"plugin.{plugin.Id}.priority";
+        var column = new StackPanel
+        {
+            Spacing = 4,
+            VerticalAlignment = VerticalAlignment.Center,
+        };
+        column.Children.Add(BuildPriorityRow(
+            $"plugin.{plugin.Id}.priority", "优先级",
+            "岛上优先级：数值越大越靠前，小岛常驻显示数值最高的活动；留空使用插件默认值"));
+        column.Children.Add(BuildPriorityRow(
+            $"plugin.{plugin.Id}.expandedPriority", "展开优先级",
+            "展开优先级：只决定展开后的排列（展开主卡与队列，数值越大越靠前）；留空＝与优先级相同（不改动旧行为）"));
+        return column;
+    }
+
+    /// <summary>一行「标签 + NumberBox」：写 <paramref name="key"/>，留空则移除该键（回退插件默认值）。</summary>
+    private UIElement BuildPriorityRow(string key, string label, string tooltip)
+    {
         var box = new NumberBox
         {
             Value = _settings.Get<double?>(key, null) ?? double.NaN,
@@ -198,11 +217,11 @@ public sealed partial class PluginManagerPage : UserControl
             Maximum = 999,
             SmallChange = 5,
             SpinButtonPlacementMode = NumberBoxSpinButtonPlacementMode.Compact,
-            Width = 104,
+            Width = 96,
             VerticalAlignment = VerticalAlignment.Center,
             IsEnabled = !_busy,
         };
-        ToolTipService.SetToolTip(box, "岛上优先级：数值越大越靠前（小岛显示优先级最高的活动）；留空使用插件默认值");
+        ToolTipService.SetToolTip(box, tooltip);
 
         box.ValueChanged += (_, args) =>
         {
@@ -225,8 +244,9 @@ public sealed partial class PluginManagerPage : UserControl
         };
         row.Children.Add(new TextBlock
         {
-            Text = "优先级",
+            Text = label,
             FontSize = 12,
+            MinWidth = 74,
             VerticalAlignment = VerticalAlignment.Center,
             Foreground = ThemeBrush("TextFillColorSecondaryBrush", 0x90, 0x90, 0x95),
         });

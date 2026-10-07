@@ -1,0 +1,13 @@
+{
+  "id": "input",
+  "name": "输入演示",
+  "version": "1.0.0",
+  "description": "示例插件：岛体与聚光卡里的文本框可直接打字（宿主 2.4.0 的「输入会话」），按钮点击不抢焦点",
+  "author": "WinIsland",
+  "icon_glyph": "\uE765",
+  "entry_dll": "InputIsland.dll",
+  "api_version": 2,
+  "min_host_version": "2.4.0",
+  "license": "MIT",
+  "tags": ["sample", "demo"]
+}

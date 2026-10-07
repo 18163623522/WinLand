@@ -365,15 +365,21 @@ internal static partial class Win32
         DwmSetWindowAttribute(hwnd, DWMWA_NCRENDERING_POLICY, ref ncrp, sizeof(int));
     }
 
-    /// <summary>将窗口设置为无边框弹出样式 + 工具窗口 + 不抢焦点。</summary>
-    public static void MakeIslandStyle(nint hwnd)
+    /// <summary>
+    /// 将窗口设置为无边框弹出样式 + 工具窗口 + 默认不抢焦点。
+    /// <paramref name="noActivate"/> 传 false 时保留可激活状态：只有「输入会话」（<c>InputSession</c>）
+    /// 在窗口可见且正被输入时才这么调用，其余一律保持默认。
+    /// </summary>
+    public static void MakeIslandStyle(nint hwnd, bool noActivate = true)
     {
         SetWindowLongPtr(hwnd, GWL_STYLE, unchecked((nint)(WS_POPUP | WS_VISIBLE)));
 
         var ex = (uint)GetWindowLongPtr(hwnd, GWL_EXSTYLE);
         // 清除所有可能导致白边的扩展样式位
         ex &= ~(WS_EX_WINDOWEDGE | WS_EX_CLIENTEDGE | WS_EX_DLGMODALFRAME | WS_EX_STATICEDGE);
-        ex |= WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE | WS_EX_TOPMOST;
+        ex |= WS_EX_TOOLWINDOW | WS_EX_TOPMOST;
+        if (noActivate) ex |= WS_EX_NOACTIVATE;
+        else ex &= ~WS_EX_NOACTIVATE;
         SetWindowLongPtr(hwnd, GWL_EXSTYLE, (nint)ex);
 
         // 去掉类背景画刷：窗口表面必须保持透明，任何默认擦除都会画成不透明白色
@@ -395,6 +401,70 @@ internal static partial class Win32
     /// 三层白边防护与 alpha 合成对覆盖窗同样必要，所以共用同一份实现，只是名字点明用途。
     /// </summary>
     public static void MakeOverlayStyle(nint hwnd) => MakeIslandStyle(hwnd);
+
+    // ---- 临时可激活（输入会话用）：默认 NOACTIVATE 不变，只在用户点到文本输入控件时短暂放开 ----
+
+    /// <summary>
+    /// 只翻转 WS_EX_NOACTIVATE 位（输入会话进出时调用）。位本身不是边框样式，改完立即生效，
+    /// 所以刻意不做 SWP_FRAMECHANGED —— 那会重置窗口形状，而输入会话恰恰发生在窗口正可见的时候。
+    /// </summary>
+    public static void SetActivatable(nint hwnd, bool activatable)
+    {
+        var ex = (uint)GetWindowLongPtr(hwnd, GWL_EXSTYLE);
+        if (activatable) ex &= ~WS_EX_NOACTIVATE;
+        else ex |= WS_EX_NOACTIVATE;
+        SetWindowLongPtr(hwnd, GWL_EXSTYLE, (nint)ex);
+    }
+
+    /// <summary>窗口当前是不是前台窗口。</summary>
+    public static bool IsForeground(nint hwnd) => GetForegroundWindow() == hwnd;
+
+    /// <summary>
+    /// 把窗口抢到前台（调用前先 <see cref="SetActivatable"/> 清掉 NOACTIVATE）。
+    /// 首选直接 SetForegroundWindow —— 刚收到点击的进程满足「最后输入事件」规则，一般直接放行；
+    /// 被前台锁挡住时退回 AttachThreadInput 到当前前台线程的标准手法，用完立刻断开。
+    /// 返回是否真的成为前台窗口。
+    /// </summary>
+    public static bool TryBringToForeground(nint hwnd)
+    {
+        SetForegroundWindow(hwnd);
+        if (GetForegroundWindow() == hwnd)
+        {
+            SetFocus(hwnd);
+            return true;
+        }
+
+        var fg = GetForegroundWindow();
+        uint fgThread = fg != nint.Zero ? GetWindowThreadProcessId(fg, out _) : 0;
+        uint thread = GetCurrentThreadId();
+        bool attached = fgThread != 0 && fgThread != thread && AttachThreadInput(thread, fgThread, true);
+        try
+        {
+            SetForegroundWindow(hwnd);
+            SetFocus(hwnd);
+        }
+        finally
+        {
+            if (attached) AttachThreadInput(thread, fgThread, false);
+        }
+
+        return GetForegroundWindow() == hwnd;
+    }
+
+    [LibraryImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static partial bool SetForegroundWindow(nint hWnd);
+
+    [LibraryImport("user32.dll")]
+    private static partial nint SetFocus(nint hWnd);
+
+    [LibraryImport("user32.dll", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static partial bool AttachThreadInput(uint idAttach, uint idAttachTo,
+        [MarshalAs(UnmanagedType.Bool)] bool fAttach);
+
+    [LibraryImport("kernel32.dll")]
+    private static partial uint GetCurrentThreadId();
 
     // ---- Esc 热键（聚光卡用）：覆盖窗是 WS_EX_NOACTIVATE，拿不到键盘焦点，只能注册系统热键 ----
 
@@ -497,10 +567,69 @@ internal static partial class Win32
             // 用户正对着岛拖文件时尤其明显（文件投放期间每 120ms 就会触发一次重升）
             if (string.Equals(cls, "SysDragImage", StringComparison.Ordinal)) continue;
 
+            // 输入法候选窗/输入宿主也不算：岛上有输入框时候选窗必然与岛相交，
+            // 把岛顶到候选窗上面会让用户看不到候选词（中文输入直接没法用）
+            if (IsInputOverlayWindow(cur, cls)) continue;
+
             return $"{cls} {rect.Left},{rect.Top} {rect.Right - rect.Left}x{rect.Bottom - rect.Top}";
         }
         return null;
     }
+
+    // ---- 输入法/输入宿主窗口豁免（置顶自愈不得把它们顶下去）----
+
+    /// <summary>输入法候选窗与输入宿主窗口的进程映像名（忽略大小写比较）。</summary>
+    private static readonly string[] InputOverlayProcesses =
+    {
+        "textinputhost.exe",   // Win11 候选窗 / 表情面板宿主
+        "chsime.exe",          // 微软拼音（旧）
+        "jpnime.exe",          // 日语 IME
+        "korime.exe",          // 韩语 IME
+    };
+
+    /// <summary>
+    /// 是否是输入法候选窗/输入宿主窗口：类名以 IME 开头（IME / MSCTFIME UI / IMECandidateUI…），
+    /// 或进程映像名命中输入宿主列表。判定是启发式 —— 中文输入实测有问题时按日志里记录的
+    /// 类名/进程名扩充这里。
+    /// </summary>
+    private static bool IsInputOverlayWindow(nint hwnd, string cls)
+    {
+        if (cls.StartsWith("IME", StringComparison.OrdinalIgnoreCase)) return true;
+
+        GetWindowThreadProcessId(hwnd, out uint pid);
+        if (pid == 0) return false;
+
+        var h = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, false, pid);
+        if (h == nint.Zero) return false;
+        try
+        {
+            var name = new char[260];
+            uint len = (uint)name.Length;
+            if (!QueryFullProcessImageName(h, 0, name, ref len)) return false;
+            string file = new(name, 0, (int)len);
+            return InputOverlayProcesses.Contains(Path.GetFileName(file), StringComparer.OrdinalIgnoreCase);
+        }
+        finally
+        {
+            CloseHandle(h);
+        }
+    }
+
+    private const uint PROCESS_QUERY_LIMITED_INFORMATION = 0x1000;
+
+    [LibraryImport("kernel32.dll", SetLastError = true)]
+    private static partial nint OpenProcess(uint dwDesiredAccess,
+        [MarshalAs(UnmanagedType.Bool)] bool bInheritHandle, uint dwProcessId);
+
+    // char[] 数组参数 LibraryImport 源生成器不处理（同 GetClassName），只能用经典 DllImport
+    [DllImport("kernel32.dll", CharSet = CharSet.Unicode, EntryPoint = "QueryFullProcessImageNameW", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool QueryFullProcessImageName(nint hProcess, uint dwFlags,
+        [Out] char[] lpExeName, ref uint lpdwSize);
+
+    [LibraryImport("kernel32.dll", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static partial bool CloseHandle(nint hObject);
 
     // ---- 前台窗口/焦点变化监听：任务栏/开始菜单/搜索抬层时立刻重升岛（轮询只是兜底），
     //      同时也是触控展开「点了别处」的兜底信号 ----
@@ -953,6 +1082,10 @@ internal static partial class Win32
     private const uint WM_NCPAINT = 0x0085;
     private const uint WM_NCHITTEST = 0x0084;
     private const uint WM_ERASEBKGND = 0x0014;
+    private const uint WM_SYSCOMMAND = 0x0112;
+    /// <summary>SC_CLOSE 的低位掩码与值（系统菜单/Alt+F4 的关闭命令）。</summary>
+    private const nint SC_CLOSE_MASK = 0xFFF0;
+    private const nint SC_CLOSE = 0xF060;
     /// <summary>WS_CAPTION|WS_SYSMENU|WS_THICKFRAME|WS_MINIMIZEBOX|WS_MAXIMIZEBOX</summary>
     private const uint FrameStyleMask = 0x00CF0000;
     /// <summary>HTTRANSPARENT：让点击穿透到下层窗口。</summary>
@@ -1017,6 +1150,13 @@ internal static partial class Win32
             uint* styleNew = (uint*)(lParam + sizeof(uint));
             *styleNew &= ~FrameStyleMask;
             *styleNew |= WS_POPUP;
+        }
+        // 拦截 WM_SYSCOMMAND/SC_CLOSE：窗口在「输入会话」里会短暂可激活，Alt+F4 就会落到
+        // 岛/聚光卡上 —— 它们既没有系统菜单也不该被键盘手势关掉（程序自己的关闭走 WM_CLOSE，
+        // 不受这里影响）。
+        if (uMsg == WM_SYSCOMMAND && (wParam & SC_CLOSE_MASK) == SC_CLOSE)
+        {
+            return 0;
         }
         // 拦截 WM_NCHITTEST：透明 padding 区域返回 HTTRANSPARENT 让点击穿透
         if (uMsg == WM_NCHITTEST)

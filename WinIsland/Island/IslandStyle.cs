@@ -116,22 +116,25 @@ public static class IslandStyle
     public static bool ResolveIsLight(ISettingsStore settings)
         => IsLightChrome(ParseStyle(settings.Get(StyleKey, AppleValue)), SystemTheme.IsLight);
 
-    /// <summary>岛体圆角：<paramref name="height"/> 为岛体高度，<paramref name="expanded"/> 表示展开大岛。</summary>
-    public static double ResolveRadius(IslandStyleKind style, double height, bool expanded)
+    /// <summary>
+    /// 岛体圆角：<paramref name="height"/> 为岛体高度，<paramref name="expanded"/> 表示展开大岛。
+    /// <paramref name="scale"/> 是用户圆角比例（1.0 = 风格默认，见 <c>island.radius</c>），
+    /// 一律在基础值上乘比例、再夹到高度一半 —— 保证胶囊/卡片形状不会被比例拉坏。
+    /// </summary>
+    public static double ResolveRadius(IslandStyleKind style, double height, bool expanded, double scale = 1.0)
     {
-        if (style == IslandStyleKind.Fluent)
-        {
-            return Math.Min(expanded ? FluentExpandedRadius : FluentCompactRadius, height / 2);
-        }
-
-        return expanded ? Math.Min(AppleExpandedRadiusCap, height / 2) : height / 2;
+        double @base = style == IslandStyleKind.Fluent
+            ? (expanded ? FluentExpandedRadius : FluentCompactRadius)
+            : (expanded ? AppleExpandedRadiusCap : height / 2);
+        return Math.Min(@base * scale, height / 2);
     }
 
-    /// <summary>队列卡片圆角。</summary>
-    public static double ResolveQueueRadius(IslandStyleKind style, double cardHeight)
-        => style == IslandStyleKind.Fluent
-            ? Math.Min(FluentQueueRadius, cardHeight / 2)
-            : AppleQueueRadius;
+    /// <summary>队列卡片圆角（连用户圆角比例，封顶卡片高度一半）。</summary>
+    public static double ResolveQueueRadius(IslandStyleKind style, double cardHeight, double scale = 1.0)
+    {
+        double @base = style == IslandStyleKind.Fluent ? FluentQueueRadius : AppleQueueRadius;
+        return Math.Min(@base * scale, cardHeight / 2);
+    }
 
     /// <summary>
     /// 岛体底衬：Apple 不透明纯黑（明暗都一样）；Fluent 有系统材质时深色主题压一层黑纱
@@ -158,9 +161,9 @@ public static class IslandStyle
             ? Pick(light, FluentIdleDotDark, FluentIdleDotLight)
             : AppleIdleDot;
 
-    /// <summary>聚光卡圆角。</summary>
-    public static double ResolveSpotlightRadius(IslandStyleKind style)
-        => style == IslandStyleKind.Fluent ? FluentSpotlightRadius : AppleSpotlightRadius;
+    /// <summary>聚光卡圆角（连用户圆角比例）。</summary>
+    public static double ResolveSpotlightRadius(IslandStyleKind style, double scale = 1.0)
+        => (style == IslandStyleKind.Fluent ? FluentSpotlightRadius : AppleSpotlightRadius) * scale;
 
     /// <summary>
     /// 聚光卡底衬：Apple 近不透明纯黑（延续灵动岛的黑胶囊身份），
@@ -168,17 +171,21 @@ public static class IslandStyle
     /// 覆盖窗是独立的全屏透明窗，这里刻意不用元素级 Acrylic —— 那需要窗口自己的材质背衬，
     /// 在「透明窗 + 遮罩」的组合里会退化成不可控的色块。
     /// </summary>
-    public static SolidColorBrush CreateSpotlightFill(IslandStyleKind style, bool materialApplied, bool light)
+    public static SolidColorBrush CreateSpotlightFill(IslandStyleKind style, bool materialApplied, bool light, double opacity = 1.0)
     {
-        if (style == IslandStyleKind.Apple) return new SolidColorBrush(AppleSpotlightSurface);
-        return new SolidColorBrush(materialApplied
+        if (style == IslandStyleKind.Apple) return new SolidColorBrush(ScaleAlpha(AppleSpotlightSurface, opacity));
+        return new SolidColorBrush(ScaleAlpha(materialApplied
             ? Pick(light, FluentSpotlightSurfaceDark, FluentSpotlightSurfaceLight)
-            : Pick(light, FluentSpotlightSolidSurfaceDark, FluentSpotlightSolidSurfaceLight));
+            : Pick(light, FluentSpotlightSolidSurfaceDark, FluentSpotlightSolidSurfaceLight), opacity));
     }
 
     /// <summary>聚光卡描边：两种风格都用 1px 细描边，把卡片从暗化遮罩里"抠"出来。</summary>
-    public static SolidColorBrush CreateSpotlightStroke(IslandStyleKind style, bool light)
-        => new(Pick(light, SpotlightStrokeDark, SpotlightStrokeLight));
+    public static SolidColorBrush CreateSpotlightStroke(IslandStyleKind style, bool light, double opacity = 1.0)
+        => new(ScaleAlpha(Pick(light, SpotlightStrokeDark, SpotlightStrokeLight), opacity));
+
+    /// <summary>把一个颜色的 alpha 乘以比例（用户不透明度设置；1.0 = 不变）。</summary>
+    private static Color ScaleAlpha(Color color, double opacity)
+        => Color.FromArgb((byte)Math.Clamp(Math.Round(color.A * opacity), 0, 255), color.R, color.G, color.B);
 
     // ---- Fluent 岛体上缘的 1px 高光（玻璃反光）----
 

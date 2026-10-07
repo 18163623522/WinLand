@@ -1,0 +1,239 @@
+/* ============================================================================
+   动效库 —— 复刻 WinUI 3 的官方过渡动画。
+   类名沿用 WinUI 的 NavigationTransitionInfo 命名，方便和文档对照。
+   ========================================================================== */
+
+/* ---- 页面导航过渡（NavigationView 切页）---- */
+@keyframes win-nav-enter {
+  from {
+    opacity: 0;
+    transform: translateY(16px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes win-nav-exit {
+  from {
+    opacity: 1;
+    transform: translateY(0);
+  }
+  to {
+    opacity: 0;
+    transform: translateY(-8px);
+  }
+}
+
+.NavigationTrigger_Default,
+.win-nav-enter {
+  animation: win-nav-enter var(--slow-duration) var(--fast-out-slow-in) both;
+}
+
+.win-nav-leave {
+  animation: win-nav-exit var(--fast-duration) var(--fast-out-slow-in) both;
+}
+
+/* 钻入（进入详情页）：新页从右侧飘入并轻微放大 */
+@keyframes win-drill-in {
+  from {
+    opacity: 0;
+    transform: translateX(40px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0) scale(1);
+  }
+}
+.NavigationTrigger_DrillIn {
+  animation: win-drill-in var(--slow-duration) var(--ease-out) both;
+}
+
+/* ---- 通用进出场 ---- */
+@keyframes win-fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+@keyframes win-fade-out {
+  from {
+    opacity: 1;
+  }
+  to {
+    opacity: 0;
+  }
+}
+@keyframes win-scale-in {
+  from {
+    opacity: 0;
+    transform: scale(0.92);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+@keyframes win-slide-up {
+  from {
+    opacity: 0;
+    transform: translateY(12px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.win-fade-in {
+  animation: win-fade-in var(--normal-duration) var(--fast-out-slow-in) both;
+}
+.win-scale-in {
+  animation: win-scale-in var(--normal-duration) var(--ease-out) both;
+}
+.win-slide-up {
+  animation: win-slide-up var(--slow-duration) var(--ease-out) both;
+}
+
+/* ---- 交错入场：给容器加 .win-stagger，子项按 --i 依次浮现 ---- */
+.win-stagger > * {
+  animation: win-slide-up var(--slow-duration) var(--ease-out) both;
+  animation-delay: calc(var(--i, 0) * 60ms);
+}
+
+/* ---- 滚动入场（IntersectionObserver 加 .is-visible）---- */
+.reveal {
+  opacity: 0;
+  transform: translateY(28px);
+  transition:
+    opacity 0.6s var(--ease-out),
+    transform 0.6s var(--ease-out);
+  transition-delay: var(--reveal-delay, 0ms);
+}
+.reveal.is-visible {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+/* ---- 灵动岛专用动画 ---- */
+
+/* 空闲小点在呼吸 */
+@keyframes island-idle-breathe {
+  0%,
+  100% {
+    opacity: 0.5;
+    transform: scale(0.85);
+  }
+  50% {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+/* 音条跳动 */
+@keyframes island-eq-bounce {
+  0%,
+  100% {
+    transform: scaleY(0.35);
+  }
+  50% {
+    transform: scaleY(1);
+  }
+}
+
+/* 新消息卡挤进来 */
+@keyframes island-queue-in {
+  from {
+    opacity: 0;
+    transform: translateY(-10px) scale(0.94);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+/* 聚光卡：从岛体位置带倾角飞入 */
+@keyframes spotlight-fly-in {
+  from {
+    opacity: 0;
+    transform: perspective(1400px) rotateX(14deg) rotateZ(-2deg) scale(0.55) translateY(40px);
+  }
+  to {
+    opacity: 1;
+    transform: perspective(1400px) rotateX(0deg) rotateZ(0deg) scale(1) translateY(0);
+  }
+}
+
+@keyframes spotlight-fly-out {
+  from {
+    opacity: 1;
+    transform: perspective(1400px) rotateX(0deg) rotateZ(0deg) scale(1);
+  }
+  to {
+    opacity: 0;
+    transform: perspective(1400px) rotateX(14deg) rotateZ(-2deg) scale(0.58) translateY(40px);
+  }
+}
+
+@keyframes spotlight-veil-in {
+  from {
+    opacity: 0;
+    backdrop-filter: blur(0px);
+  }
+  to {
+    opacity: 1;
+    backdrop-filter: blur(14px);
+  }
+}
+
+/* 投放卡片被"点亮" */
+@keyframes drop-tile-arm {
+  0% {
+    transform: scale(1);
+  }
+  45% {
+    transform: scale(1.14);
+  }
+  100% {
+    transform: scale(1.08);
+  }
+}
+
+/* 电量环脉动（充电中） */
+@keyframes battery-pulse {
+  0%,
+  100% {
+    opacity: 0.35;
+  }
+  50% {
+    opacity: 0.9;
+  }
+}
+
+/* Hero 区的光晕缓慢漂移 */
+@keyframes brand-drift {
+  0%,
+  100% {
+    transform: translate3d(-3%, -2%, 0) scale(1);
+  }
+  33% {
+    transform: translate3d(4%, 3%, 0) scale(1.12);
+  }
+  66% {
+    transform: translate3d(-2%, 5%, 0) scale(1.06);
+  }
+}
+
+/* 渐变文字缓慢流动 */
+@keyframes gradient-pan {
+  0% {
+    background-position: 0% 50%;
+  }
+  100% {
+    background-position: 200% 50%;
+  }
+}

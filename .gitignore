@@ -8,3 +8,13 @@ obj/
 # 发布 / 安装包产物
 publish/
 installer/Output/
+
+# 临时与本地文件
+probe*.txt
+.workbuddy/
+.commandcode/
+
+# website 构建产物与依赖
+website/node_modules/
+website/dist/
+website/.shots/

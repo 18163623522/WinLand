@@ -1,0 +1,698 @@
+/* ============================================================================
+   WinUIonWeb 主题变量 —— 与 Windows 11 Fluent 设计令牌一一对应。
+   浅色是默认值（:root），深色在 html.theme-dark / prefers-color-scheme 下覆盖。
+   ========================================================================== */
+
+/* ----------------------------------------------------------------------------
+   图标字体。
+   全站的 .icon 都靠它 —— SEGOEICONS.TTF 是 Segoe Fluent Icons 的一份拷贝，
+   每个字形对上 WinUI 的 \uE### 私有区码点。
+   用 urls 里的相对路径（../assets/...）让 Vite 自己处理指纹与产物拷贝。
+   font-display: block 是关键：默认的 swap 会先用回退字体画出一堆方框或乱码，
+   图标字体宁可短暂空白也不要闪错字。
+   -------------------------------------------------------------------------- */
+@font-face {
+  font-family: 'WinUIOnWebIcons';
+  src: url('../assets/Fonts/SEGOEICONS.TTF') format('truetype');
+  font-weight: normal;
+  font-style: normal;
+  font-display: block;
+}
+
+:root {
+  color-scheme: light dark;
+
+  /* ---- 动效时长与曲线（对齐 WinUI 3 的 Fluent 运动规范）---- */
+  --faster-duration: 0.083s;
+  --fast-duration: 0.167s;
+  --normal-duration: 0.2s;
+  --slow-duration: 0.3s;
+  --fast-out-slow-in: cubic-bezier(0, 0, 0, 1);
+  --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+  --ease-spring: cubic-bezier(0.34, 1.42, 0.64, 1);
+
+  /* ---- 基础层 ---- */
+  --app-bg: #f3f3f3;
+  --layer-default: rgba(255, 255, 255, 0.5);
+  --solid-base: #f3f3f3;
+
+  /* ---- 卡片 ---- */
+  --card-bg: rgba(255, 255, 255, 0.7);
+  --card-stroke: rgba(0, 0, 0, 0.06);
+  --card-bg-secondary: rgba(246, 246, 246, 0.5);
+  --CardBackgroundFillColorDefaultBrush: rgba(255, 255, 255, 0.7);
+  --CardBackgroundFillColorSecondaryBrush: rgba(246, 246, 246, 0.5);
+  --CardStrokeColorDefaultBrush: rgba(0, 0, 0, 0.06);
+
+  /* ---- 文本 ---- */
+  --text-primary: rgba(0, 0, 0, 0.89);
+  --text-secondary: rgba(0, 0, 0, 0.62);
+  --text-tertiary: rgba(0, 0, 0, 0.45);
+  --text-disabled: rgba(0, 0, 0, 0.36);
+  --TextFillColorPrimaryBrush: rgba(0, 0, 0, 0.89);
+  --TextFillColorSecondaryBrush: rgba(0, 0, 0, 0.62);
+  --TextFillColorTertiaryBrush: rgba(0, 0, 0, 0.45);
+  --TextFillColorDisabledBrush: rgba(0, 0, 0, 0.36);
+
+  /* ---- 强调色 ---- */
+  --accent-base: #0067c0;
+  --accent-hover: rgba(0, 103, 192, 0.9);
+  --accent-pressed: rgba(0, 103, 192, 0.8);
+  --accent-fill-disabled: rgba(0, 0, 0, 0.22);
+  --accent-text: #ffffff;
+  --accent-text-secondary: rgba(255, 255, 255, 0.7);
+  --accent-text-fill-color-primary: #0d4897;
+  --AccentFillColorDefaultBrush: #0067c0;
+  --AccentFillColorSecondaryBrush: rgba(0, 103, 192, 0.9);
+  --AccentFillColorTertiaryBrush: rgba(0, 103, 192, 0.8);
+  --accent: var(--accent-base);
+
+  /* ---- 控件填充 / 描边 ---- */
+  --ctrl-border-rest: rgba(0, 0, 0, 0.06);
+  --ctrl-border: rgba(0, 0, 0, 0.06);
+  --ctrl-border-accent: rgba(0, 0, 0, 0.16);
+  --accent-border: rgba(255, 255, 255, 0.08);
+  --accent-border-accent: rgba(0, 0, 0, 0.4);
+  --ctrl-fill-default: rgba(255, 255, 255, 0.7);
+  --ctrl-fill-secondary: rgba(249, 249, 249, 0.5);
+  --ctrl-fill-tertiary: rgba(249, 249, 249, 0.3);
+  --ctrl-fill-disabled: rgba(249, 249, 249, 0.3);
+  --ctrl-fill-input-active: #ffffff;
+  --ctrl-strong-fill: rgba(0, 0, 0, 0.45);
+  --ctrl-strong-stroke: rgba(0, 0, 0, 0.45);
+  --ctrl-solid-fill: #ffffff;
+  --ControlElevationBorderBrush: linear-gradient(
+    180deg,
+    var(--ctrl-border) 0px,
+    var(--ctrl-border-accent) 2px,
+    var(--ctrl-border-accent) 100%
+  );
+  --AccentControlElevationBorderBrush: linear-gradient(
+    180deg,
+    var(--accent-border) 0px,
+    var(--accent-border-accent) 2px,
+    var(--accent-border-accent) 100%
+  );
+
+  /* ---- Subtle 层 ---- */
+  --subtle-transparent: transparent;
+  --subtle-secondary: rgba(0, 0, 0, 0.0373);
+  --subtle-tertiary: rgba(0, 0, 0, 0.0241);
+  --subtle-pressed: rgba(0, 0, 0, 0.06);
+  --SubtleFillColorSecondaryBrush: rgba(0, 0, 0, 0.04);
+
+  /* ---- 描边 / 分隔线 ---- */
+  --stroke-surface-flyout: rgba(0, 0, 0, 0.06);
+  --stroke-divider: rgba(0, 0, 0, 0.06);
+  --divider-stroke: var(--stroke-divider);
+  --ControlStrokeColorDefaultBrush: rgba(0, 0, 0, 0.06);
+  --DividerStrokeColorDefaultBrush: rgba(0, 0, 0, 0.06);
+
+  /* ---- 浮出层（Acrylic 菜单 / 提示）---- */
+  --flyout-bg: rgba(252, 252, 252, 0.92);
+  --flyout-border: rgba(0, 0, 0, 0.06);
+  --flyout-backdrop: blur(30px) saturate(160%) brightness(1.02);
+  --AcrylicInAppFillColorDefaultBrush: var(--flyout-bg);
+  --ToolTipBackgroundBrush: var(--flyout-bg);
+  --dialog-background: #fcfcfc;
+  --dialog-overlay: rgba(0, 0, 0, 0.3);
+
+  /* ---- 语义色 ---- */
+  --SystemFillColorAttentionBrush: #0067c0;
+  --SystemFillColorSuccessBrush: #0f7b0f;
+  --SystemFillColorCautionBrush: #9d5d00;
+  --SystemFillColorCriticalBrush: #c42b1c;
+  --SystemFillColorSuccessBackgroundBrush: #dff6dd;
+  --SystemFillColorCautionBackgroundBrush: #fff4ce;
+  --SystemFillColorCriticalBackgroundBrush: #fde7e9;
+
+  /* ---- 开关 ---- */
+  --toggle-border: rgba(0, 0, 0, 0.45);
+  --toggle-thumb: rgba(0, 0, 0, 0.61);
+  --toggle-thumb-hover: rgba(0, 0, 0, 0.89);
+  --toggle-on-thumb: #ffffff;
+
+  /* ---- 滚动条 ---- */
+  --ScrollBarThumbBackground: rgba(0, 0, 0, 0.45);
+  --ScrollBarTrackFill: transparent;
+
+  /* ---- 站点自身的品牌色（灵动岛：一道青蓝到紫的电光）---- */
+  --brand-1: #0a84ff;
+  --brand-2: #5e5ce6;
+  --brand-3: #32d0c8;
+  --brand-glow: rgba(10, 132, 255, 0.28);
+}
+
+/* ============================================================================
+   深色主题
+   ========================================================================== */
+@media (prefers-color-scheme: dark) {
+  :root {
+    --app-bg: #202020;
+    --layer-default: rgba(58, 58, 58, 0.3);
+    --solid-base: #202020;
+    --card-bg: rgba(255, 255, 255, 0.0512);
+    --card-stroke: rgba(0, 0, 0, 0.1);
+    --card-bg-secondary: rgba(255, 255, 255, 0.0326);
+    --CardBackgroundFillColorDefaultBrush: rgba(255, 255, 255, 0.0512);
+    --CardBackgroundFillColorSecondaryBrush: rgba(255, 255, 255, 0.0326);
+    --CardStrokeColorDefaultBrush: rgba(0, 0, 0, 0.1);
+    --text-primary: #ffffff;
+    --text-secondary: rgba(255, 255, 255, 0.77);
+    --text-tertiary: rgba(255, 255, 255, 0.53);
+    --text-disabled: rgba(255, 255, 255, 0.36);
+    --TextFillColorPrimaryBrush: #ffffff;
+    --TextFillColorSecondaryBrush: rgba(255, 255, 255, 0.77);
+    --TextFillColorTertiaryBrush: rgba(255, 255, 255, 0.53);
+    --TextFillColorDisabledBrush: rgba(255, 255, 255, 0.36);
+    --accent-base: #4cc2ff;
+    --accent-hover: rgba(96, 205, 255, 0.9);
+    --accent-pressed: rgba(96, 205, 255, 0.8);
+    --accent-fill-disabled: rgba(255, 255, 255, 0.16);
+    --accent-text: #000000;
+    --accent-text-secondary: rgba(0, 0, 0, 0.5);
+    --accent-text-fill-color-primary: #99ebff;
+    --AccentFillColorDefaultBrush: #4cc2ff;
+    --ctrl-border-rest: rgba(0, 0, 0, 0.07);
+    --ctrl-border: rgba(255, 255, 255, 0.0706);
+    --ctrl-border-accent: rgba(255, 255, 255, 0.0941);
+    --accent-border: rgba(0, 0, 0, 0.1373);
+    --accent-border-accent: rgba(255, 255, 255, 0.0784);
+    --ctrl-fill-default: rgba(255, 255, 255, 0.0605);
+    --ctrl-fill-secondary: rgba(255, 255, 255, 0.0837);
+    --ctrl-fill-tertiary: rgba(255, 255, 255, 0.0326);
+    --ctrl-fill-disabled: rgba(255, 255, 255, 0.0419);
+    --ctrl-fill-input-active: rgba(30, 30, 30, 0.7);
+    --ctrl-strong-fill: rgba(255, 255, 255, 0.54);
+    --ctrl-strong-stroke: rgba(255, 255, 255, 0.54);
+    --ctrl-solid-fill: #454545;
+    --ControlElevationBorderBrush: linear-gradient(
+      180deg,
+      var(--ctrl-border-accent) 0px,
+      var(--ctrl-border-accent) 1px,
+      var(--ctrl-border) 3px,
+      var(--ctrl-border) 100%
+    );
+    --AccentControlElevationBorderBrush: linear-gradient(
+      180deg,
+      var(--accent-border-accent) 0px,
+      var(--accent-border) 2px,
+      var(--accent-border) 100%
+    );
+    --subtle-secondary: rgba(255, 255, 255, 0.0605);
+    --subtle-tertiary: rgba(255, 255, 255, 0.0419);
+    --subtle-pressed: rgba(255, 255, 255, 0.03);
+    --SubtleFillColorSecondaryBrush: rgba(255, 255, 255, 0.06);
+    --stroke-surface-flyout: rgba(0, 0, 0, 0.2);
+    --stroke-divider: rgba(255, 255, 255, 0.08);
+    --ControlStrokeColorDefaultBrush: rgba(255, 255, 255, 0.0706);
+    --DividerStrokeColorDefaultBrush: rgba(255, 255, 255, 0.08);
+    --flyout-bg: rgba(44, 44, 44, 0.86);
+    --flyout-border: rgba(255, 255, 255, 0.1);
+    --flyout-backdrop: blur(44px) saturate(190%) brightness(1.22) contrast(1.05);
+    --dialog-background: #2c2c2c;
+    --dialog-overlay: rgba(0, 0, 0, 0.3);
+    --SystemFillColorAttentionBrush: #4cc2ff;
+    --SystemFillColorSuccessBrush: #6ccb5f;
+    --SystemFillColorCautionBrush: #fce100;
+    --SystemFillColorCriticalBrush: #ff99a4;
+    --SystemFillColorSuccessBackgroundBrush: #393d1b;
+    --SystemFillColorCautionBackgroundBrush: #433519;
+    --SystemFillColorCriticalBackgroundBrush: #442726;
+    --toggle-border: rgba(255, 255, 255, 0.54);
+    --toggle-thumb: rgba(255, 255, 255, 0.79);
+    --toggle-thumb-hover: #ffffff;
+    --toggle-on-thumb: #000000;
+    --ScrollBarThumbBackground: rgba(255, 255, 255, 0.54);
+    --brand-glow: rgba(76, 194, 255, 0.22);
+  }
+}
+
+/* 显式主题类优先于系统偏好（站点右上角可以手动切） */
+html.theme-light {
+  color-scheme: light;
+  --app-bg: #f3f3f3;
+  --layer-default: rgba(255, 255, 255, 0.5);
+  --solid-base: #f3f3f3;
+  --card-bg: rgba(255, 255, 255, 0.7);
+  --card-stroke: rgba(0, 0, 0, 0.06);
+  --card-bg-secondary: rgba(246, 246, 246, 0.5);
+  --CardBackgroundFillColorDefaultBrush: rgba(255, 255, 255, 0.7);
+  --CardBackgroundFillColorSecondaryBrush: rgba(246, 246, 246, 0.5);
+  --CardStrokeColorDefaultBrush: rgba(0, 0, 0, 0.06);
+  --text-primary: rgba(0, 0, 0, 0.89);
+  --text-secondary: rgba(0, 0, 0, 0.62);
+  --text-tertiary: rgba(0, 0, 0, 0.45);
+  --text-disabled: rgba(0, 0, 0, 0.36);
+  --TextFillColorPrimaryBrush: rgba(0, 0, 0, 0.89);
+  --TextFillColorSecondaryBrush: rgba(0, 0, 0, 0.62);
+  --TextFillColorTertiaryBrush: rgba(0, 0, 0, 0.45);
+  --TextFillColorDisabledBrush: rgba(0, 0, 0, 0.36);
+  --accent-base: #0067c0;
+  --accent-hover: rgba(0, 103, 192, 0.9);
+  --accent-pressed: rgba(0, 103, 192, 0.8);
+  --accent-fill-disabled: rgba(0, 0, 0, 0.22);
+  --accent-text: #ffffff;
+  --accent-text-secondary: rgba(255, 255, 255, 0.7);
+  --accent-text-fill-color-primary: #0d4897;
+  --AccentFillColorDefaultBrush: #0067c0;
+  --ctrl-border-rest: rgba(0, 0, 0, 0.06);
+  --ctrl-border: rgba(0, 0, 0, 0.06);
+  --ctrl-border-accent: rgba(0, 0, 0, 0.16);
+  --accent-border: rgba(255, 255, 255, 0.08);
+  --accent-border-accent: rgba(0, 0, 0, 0.4);
+  --ctrl-fill-default: rgba(255, 255, 255, 0.7);
+  --ctrl-fill-secondary: rgba(249, 249, 249, 0.5);
+  --ctrl-fill-tertiary: rgba(249, 249, 249, 0.3);
+  --ctrl-fill-disabled: rgba(249, 249, 249, 0.3);
+  --ctrl-fill-input-active: #ffffff;
+  --ctrl-strong-fill: rgba(0, 0, 0, 0.45);
+  --ctrl-strong-stroke: rgba(0, 0, 0, 0.45);
+  --ctrl-solid-fill: #ffffff;
+  --ControlElevationBorderBrush: linear-gradient(
+    180deg,
+    var(--ctrl-border) 0px,
+    var(--ctrl-border-accent) 2px,
+    var(--ctrl-border-accent) 100%
+  );
+  --AccentControlElevationBorderBrush: linear-gradient(
+    180deg,
+    var(--accent-border) 0px,
+    var(--accent-border-accent) 2px,
+    var(--accent-border-accent) 100%
+  );
+  --subtle-secondary: rgba(0, 0, 0, 0.0373);
+  --subtle-tertiary: rgba(0, 0, 0, 0.0241);
+  --subtle-pressed: rgba(0, 0, 0, 0.06);
+  --SubtleFillColorSecondaryBrush: rgba(0, 0, 0, 0.04);
+  --stroke-surface-flyout: rgba(0, 0, 0, 0.06);
+  --stroke-divider: rgba(0, 0, 0, 0.06);
+  --ControlStrokeColorDefaultBrush: rgba(0, 0, 0, 0.06);
+  --DividerStrokeColorDefaultBrush: rgba(0, 0, 0, 0.06);
+  --flyout-bg: rgba(252, 252, 252, 0.92);
+  --flyout-border: rgba(0, 0, 0, 0.06);
+  --flyout-backdrop: blur(30px) saturate(160%) brightness(1.02);
+  --dialog-background: #fcfcfc;
+  --SystemFillColorAttentionBrush: #0067c0;
+  --SystemFillColorSuccessBrush: #0f7b0f;
+  --SystemFillColorCautionBrush: #9d5d00;
+  --SystemFillColorCriticalBrush: #c42b1c;
+  --SystemFillColorSuccessBackgroundBrush: #dff6dd;
+  --SystemFillColorCautionBackgroundBrush: #fff4ce;
+  --SystemFillColorCriticalBackgroundBrush: #fde7e9;
+  --toggle-border: rgba(0, 0, 0, 0.45);
+  --toggle-thumb: rgba(0, 0, 0, 0.61);
+  --toggle-thumb-hover: rgba(0, 0, 0, 0.89);
+  --toggle-on-thumb: #ffffff;
+  --ScrollBarThumbBackground: rgba(0, 0, 0, 0.45);
+  --brand-glow: rgba(10, 132, 255, 0.28);
+}
+
+html.theme-dark {
+  color-scheme: dark;
+  --app-bg: #202020;
+  --layer-default: rgba(58, 58, 58, 0.3);
+  --solid-base: #202020;
+  --card-bg: rgba(255, 255, 255, 0.0512);
+  --card-stroke: rgba(0, 0, 0, 0.1);
+  --card-bg-secondary: rgba(255, 255, 255, 0.0326);
+  --CardBackgroundFillColorDefaultBrush: rgba(255, 255, 255, 0.0512);
+  --CardBackgroundFillColorSecondaryBrush: rgba(255, 255, 255, 0.0326);
+  --CardStrokeColorDefaultBrush: rgba(0, 0, 0, 0.1);
+  --text-primary: #ffffff;
+  --text-secondary: rgba(255, 255, 255, 0.77);
+  --text-tertiary: rgba(255, 255, 255, 0.53);
+  --text-disabled: rgba(255, 255, 255, 0.36);
+  --TextFillColorPrimaryBrush: #ffffff;
+  --TextFillColorSecondaryBrush: rgba(255, 255, 255, 0.77);
+  --TextFillColorTertiaryBrush: rgba(255, 255, 255, 0.53);
+  --TextFillColorDisabledBrush: rgba(255, 255, 255, 0.36);
+  --accent-base: #4cc2ff;
+  --accent-hover: rgba(96, 205, 255, 0.9);
+  --accent-pressed: rgba(96, 205, 255, 0.8);
+  --accent-fill-disabled: rgba(255, 255, 255, 0.16);
+  --accent-text: #000000;
+  --accent-text-secondary: rgba(0, 0, 0, 0.5);
+  --accent-text-fill-color-primary: #99ebff;
+  --AccentFillColorDefaultBrush: #4cc2ff;
+  --ctrl-border-rest: rgba(0, 0, 0, 0.07);
+  --ctrl-border: rgba(255, 255, 255, 0.0706);
+  --ctrl-border-accent: rgba(255, 255, 255, 0.0941);
+  --accent-border: rgba(0, 0, 0, 0.1373);
+  --accent-border-accent: rgba(255, 255, 255, 0.0784);
+  --ctrl-fill-default: rgba(255, 255, 255, 0.0605);
+  --ctrl-fill-secondary: rgba(255, 255, 255, 0.0837);
+  --ctrl-fill-tertiary: rgba(255, 255, 255, 0.0326);
+  --ctrl-fill-disabled: rgba(255, 255, 255, 0.0419);
+  --ctrl-fill-input-active: rgba(30, 30, 30, 0.7);
+  --ctrl-strong-fill: rgba(255, 255, 255, 0.54);
+  --ctrl-strong-stroke: rgba(255, 255, 255, 0.54);
+  --ctrl-solid-fill: #454545;
+  --ControlElevationBorderBrush: linear-gradient(
+    180deg,
+    var(--ctrl-border-accent) 0px,
+    var(--ctrl-border-accent) 1px,
+    var(--ctrl-border) 3px,
+    var(--ctrl-border) 100%
+  );
+  --AccentControlElevationBorderBrush: linear-gradient(
+    180deg,
+    var(--accent-border-accent) 0px,
+    var(--accent-border) 2px,
+    var(--accent-border) 100%
+  );
+  --subtle-secondary: rgba(255, 255, 255, 0.0605);
+  --subtle-tertiary: rgba(255, 255, 255, 0.0419);
+  --subtle-pressed: rgba(255, 255, 255, 0.03);
+  --SubtleFillColorSecondaryBrush: rgba(255, 255, 255, 0.06);
+  --stroke-surface-flyout: rgba(0, 0, 0, 0.2);
+  --stroke-divider: rgba(255, 255, 255, 0.08);
+  --ControlStrokeColorDefaultBrush: rgba(255, 255, 255, 0.0706);
+  --DividerStrokeColorDefaultBrush: rgba(255, 255, 255, 0.08);
+  --flyout-bg: rgba(44, 44, 44, 0.86);
+  --flyout-border: rgba(255, 255, 255, 0.1);
+  --flyout-backdrop: blur(44px) saturate(190%) brightness(1.22) contrast(1.05);
+  --dialog-background: #2c2c2c;
+  --SystemFillColorAttentionBrush: #4cc2ff;
+  --SystemFillColorSuccessBrush: #6ccb5f;
+  --SystemFillColorCautionBrush: #fce100;
+  --SystemFillColorCriticalBrush: #ff99a4;
+  --SystemFillColorSuccessBackgroundBrush: #393d1b;
+  --SystemFillColorCautionBackgroundBrush: #433519;
+  --SystemFillColorCriticalBackgroundBrush: #442726;
+  --toggle-border: rgba(255, 255, 255, 0.54);
+  --toggle-thumb: rgba(255, 255, 255, 0.79);
+  --toggle-thumb-hover: #ffffff;
+  --toggle-on-thumb: #000000;
+  --ScrollBarThumbBackground: rgba(255, 255, 255, 0.54);
+  --brand-glow: rgba(76, 194, 255, 0.22);
+}
+
+/* ============================================================================
+   基础重置
+   ========================================================================== */
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#app {
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  padding: 0;
+}
+
+html,
+body {
+  overflow: hidden;
+}
+
+body {
+  font-family: 'Segoe UI Variable Text', 'Segoe UI', 'Microsoft YaHei UI', system-ui, -apple-system,
+    sans-serif;
+  font-size: 14px;
+  line-height: 20px;
+  color: var(--text-primary);
+  background-color: var(--app-bg);
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+  user-select: none;
+}
+
+/* 正文区允许选中（技术文档要能复制代码） */
+.site-selectable,
+pre,
+code,
+input,
+textarea {
+  user-select: text;
+}
+
+a {
+  color: var(--accent-base);
+  text-decoration: none;
+}
+a:hover {
+  text-decoration: underline;
+}
+
+/* 图标字体——所有 Segoe 字形都从这里取 */
+.icon,
+[class^='icon-'],
+[class*=' icon-'] {
+  font-family: 'WinUIOnWebIcons', 'Segoe Fluent Icons', 'Segoe MDL2 Assets', sans-serif;
+  font-weight: normal;
+  font-style: normal;
+  font-feature-settings: 'liga' 0;
+  line-height: 1;
+  display: inline-block;
+  speak: never;
+}
+
+::-webkit-scrollbar {
+  width: 12px;
+  height: 12px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: var(--ScrollBarThumbBackground);
+  background-clip: content-box;
+  border: 4px solid transparent;
+  border-radius: 7px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: var(--text-secondary);
+  background-clip: content-box;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+/* ==========================================================================
+   站点补充令牌
+   ==========================================================================
+   下面这些不是 WinUI 原生令牌，是站点自己要用到的：
+   强调色上的文字色、卡片阴影、等宽字体、代码底色。
+   四套覆盖都要给，否则深色里会露出浅色的兜底值。
+   -------------------------------------------------------------------------- */
+
+:root {
+  --text-on-accent: #ffffff;
+  --card-bg: rgba(255, 255, 255, 0.7);
+  --card-shadow: 0 1px 2px rgb(0 0 0 / 5%), 0 8px 24px rgb(0 0 0 / 4%);
+  --focus-stroke-outer: #0a84ff;
+  --mono-font: 'Cascadia Code', 'Cascadia Mono', 'JetBrains Mono', 'Consolas', 'SF Mono', ui-monospace, monospace;
+  --code-bg: rgba(255, 255, 255, 0.72);
+  --surface-raised: rgba(255, 255, 255, 0.86);
+  --hf-stroke: var(--divider-stroke);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not(.theme-light) {
+    --text-on-accent: #ffffff;
+    --card-bg: rgba(255, 255, 255, 0.045);
+    --card-shadow: 0 1px 2px rgb(0 0 0 / 24%), 0 10px 30px rgb(0 0 0 / 26%);
+    --focus-stroke-outer: #6cb8ff;
+    --code-bg: rgba(0, 0, 0, 0.35);
+    --surface-raised: rgba(255, 255, 255, 0.06);
+    --hf-stroke: rgba(255, 255, 255, 0.09);
+  }
+}
+
+html.theme-light {
+  --text-on-accent: #ffffff;
+  --card-bg: rgba(255, 255, 255, 0.7);
+  --card-shadow: 0 1px 2px rgb(0 0 0 / 5%), 0 8px 24px rgb(0 0 0 / 4%);
+  --focus-stroke-outer: #0a84ff;
+  --code-bg: rgba(255, 255, 255, 0.72);
+  --surface-raised: rgba(255, 255, 255, 0.86);
+  --hf-stroke: var(--divider-stroke);
+}
+
+html.theme-dark {
+  --text-on-accent: #ffffff;
+  --card-bg: rgba(255, 255, 255, 0.045);
+  --card-shadow: 0 1px 2px rgb(0 0 0 / 24%), 0 10px 30px rgb(0 0 0 / 26%);
+  --focus-stroke-outer: #6cb8ff;
+  --code-bg: rgba(0, 0, 0, 0.35);
+  --surface-raised: rgba(255, 255, 255, 0.06);
+  --hf-stroke: rgba(255, 255, 255, 0.09);
+}
+
+/* ==========================================================================
+   站点布局套件
+   ========================================================================== */
+
+/* 卡片网格：自动按可用宽度换列，最小 260px */
+.site-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  gap: 12px;
+}
+
+.site-grid--wide {
+  grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+}
+
+.site-grid--dense {
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+}
+
+/* 通用信息卡 */
+.site-card {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 18px;
+  border-radius: 12px;
+  border: 1px solid var(--card-stroke);
+  background: var(--card-bg);
+  box-shadow: var(--card-shadow);
+  transition: transform var(--fast-duration) var(--fast-out-slow-in),
+    border-color var(--fast-duration) linear, box-shadow var(--fast-duration) linear;
+}
+
+.site-card.is-interactive {
+  cursor: pointer;
+}
+
+.site-card.is-interactive:hover {
+  transform: translateY(-2px);
+  border-color: color-mix(in srgb, var(--accent-base) 32%, var(--card-stroke));
+}
+
+.site-card.is-interactive:focus-visible {
+  outline: 2px solid var(--focus-stroke-outer);
+  outline-offset: 2px;
+}
+
+.site-card__glyph {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  height: 34px;
+  border-radius: 9px;
+  font-size: 16px;
+  color: var(--card-accent, var(--accent-base));
+  background: color-mix(in srgb, var(--card-accent, var(--accent-base)) 13%, transparent);
+}
+
+.site-card__title {
+  margin: 0;
+  font-size: 14px;
+  line-height: 20px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.site-card__body {
+  margin: 0;
+  font-size: 13px;
+  line-height: 21px;
+  color: var(--text-secondary);
+}
+
+.site-card__meta {
+  margin-top: auto;
+  padding-top: 8px;
+  font-family: var(--mono-font);
+  font-size: 11px;
+  line-height: 16px;
+  color: var(--text-tertiary);
+  word-break: break-all;
+}
+
+/* 小徽标 */
+.site-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 9px;
+  border-radius: 999px;
+  border: 1px solid var(--card-stroke);
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  background: var(--subtle-secondary);
+  white-space: nowrap;
+}
+
+.site-chip--accent {
+  color: var(--brand-1);
+  border-color: color-mix(in srgb, var(--brand-1) 28%, transparent);
+  background: color-mix(in srgb, var(--brand-1) 11%, transparent);
+}
+
+.site-chip--mono {
+  font-family: var(--mono-font);
+  font-weight: 500;
+}
+
+/* 表格：WinUI 里那种细横线、无竖线的样式 */
+.site-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+
+.site-table th {
+  padding: 10px 14px;
+  text-align: left;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-tertiary);
+  border-bottom: 1px solid var(--hf-stroke);
+  white-space: nowrap;
+}
+
+.site-table td {
+  padding: 12px 14px;
+  vertical-align: top;
+  color: var(--text-secondary);
+  border-bottom: 1px solid var(--hf-stroke);
+}
+
+.site-table tbody tr:last-child td {
+  border-bottom: 0;
+}
+
+.site-table tbody tr:hover td {
+  background: var(--subtle-tertiary);
+}
+
+.site-table code {
+  font-family: var(--mono-font);
+  font-size: 12px;
+  padding: 1px 5px;
+  border-radius: 4px;
+  color: var(--text-primary);
+  background: var(--subtle-secondary);
+}
+
+.site-table__nowrap {
+  white-space: nowrap;
+}
+
+/* 表格在窄屏要能横向滚，别把页面撑破 */
+.site-table-wrap {
+  overflow-x: auto;
+  border-radius: 12px;
+  border: 1px solid var(--card-stroke);
+  background: var(--card-bg);
+}
+

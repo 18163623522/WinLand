@@ -17,6 +17,8 @@ public sealed partial class GeneralSettingsPage : UserControl
     private const string HoverDelayKey = "island.hoverDelay";
     private const string BounceKey = "island.bounce";
     private const string DisplayKey = "island.display";
+    private const string RadiusKey = "island.radius";
+    private const string OpacityKey = "island.opacity";
 
     private static readonly string[] HorizontalValues = { "center", "left", "right" };
 
@@ -56,6 +58,9 @@ public sealed partial class GeneralSettingsPage : UserControl
         ScaleIslandSlider.Value = _settings.Get("island.scale.island", 100);
         ScaleIdleSlider.Value = _settings.Get("island.scale.idle", 100);
         ScaleStripSlider.Value = _settings.Get("island.scale.strip", 100);
+
+        RadiusSlider.Value = _settings.Get(RadiusKey, 100.0);
+        OpacitySlider.Value = _settings.Get(OpacityKey, 100.0);
 
         LoadOffsetControl();
         HorizontalOffsetSlider.Value = _settings.Get(HorizontalOffsetKey, 0.0);
@@ -425,6 +430,18 @@ public sealed partial class GeneralSettingsPage : UserControl
                     : ReferenceEquals(sender, ScaleIdleSlider) ? "island.scale.idle"
                     : ReferenceEquals(sender, ScaleStripSlider) ? "island.scale.strip" : null;
         if (key != null) _settings.Set(key, (int)Math.Round(((Slider)sender).Value));
+    }
+
+    private void RadiusSlider_ValueChanged(object sender, RangeBaseValueChangedEventArgs e)
+    {
+        if (_loading) return;
+        _settings.Set(RadiusKey, Math.Round(RadiusSlider.Value));
+    }
+
+    private void OpacitySlider_ValueChanged(object sender, RangeBaseValueChangedEventArgs e)
+    {
+        if (_loading) return;
+        _settings.Set(OpacityKey, Math.Round(OpacitySlider.Value));
     }
 
     private void RunOnboarding_Click(object sender, RoutedEventArgs e) => _openOnboarding?.Invoke();

@@ -10,14 +10,16 @@ namespace WinIsland.Core;
 public sealed class SpotlightHost
 {
     private readonly IslandWindow _island;
+    private readonly ISettingsStore _settings;
     private readonly IPluginLogger _log;
     private SpotlightWindow? _window;
     private (string Owner, IslandSpotlight Content)? _current;
     private bool _islandOccluded;
 
-    public SpotlightHost(IslandWindow island, IPluginLogger log)
+    public SpotlightHost(IslandWindow island, ISettingsStore settings, IPluginLogger log)
     {
         _island = island;
+        _settings = settings;
         _log = log;
         _island.Closed += (_, _) => CloseAll();
     }
@@ -54,7 +56,7 @@ public sealed class SpotlightHost
 
     private SpotlightWindow CreateWindow()
     {
-        var window = new SpotlightWindow(_log);
+        var window = new SpotlightWindow(_settings, _log);
         window.Dismissed += OnDismissed;
         return window;
     }

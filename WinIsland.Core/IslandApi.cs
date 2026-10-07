@@ -22,7 +22,20 @@ public interface IMorphView
 /// </summary>
 public sealed record IslandLiveContent
 {
+    /// <summary>
+    /// 原优先级：小岛常驻取数值最高的活动（既有行为）。
+    /// </summary>
     public int Priority { get; init; }
+
+    /// <summary>
+    /// 展开优先级（可选）：只决定**展开后**的排列 —— 展开主卡与队列卡片都按它降序（数值大者靠前）。
+    /// 不设（<c>null</c>）时等同 <see cref="Priority"/>，因此不设置就与旧行为完全一致。
+    /// 小岛常驻不受它影响（始终取 <see cref="Priority"/> 最高者），所以两者可以相反：
+    /// 想让某张卡展开时排最前、但小岛常驻显示另一张时，给前者设一个更高的展开优先级即可。
+    /// 宿主还可用 <c>plugin.&lt;pluginId&gt;.expandedPriority</c> 覆盖本值。
+    /// </summary>
+    public int? ExpandedPriority { get; init; }
+
     public string? OwnerLabel { get; init; }
     public string? OwnerGlyph { get; init; }
     public Windows.UI.Color? OwnerAccent { get; init; }

@@ -36,7 +36,11 @@ public sealed partial class SpotlightWindow : Window
     /// <summary>卡片尺寸占工作区的上限（插件声明的尺寸会被夹到这个范围内）。</summary>
     private const double WorkAreaFill = 0.92;
     private const double HintGap = 14;
+    /// <summary>宿主外观键：与岛体共用（圆角比例、不透明度）。</summary>
+    private const string RadiusKey = "island.radius";
+    private const string OpacityKey = "island.opacity";
 
+    private readonly ISettingsStore _settings;
     private readonly IPluginLogger _log;
     private readonly nint _hwnd;
     private readonly OverlappedPresenter _presenter;
@@ -48,6 +52,8 @@ public sealed partial class SpotlightWindow : Window
     private bool _armed;
     private bool _pendingClose;
     private bool _hotKeyInstalled;
+    /// <summary>输入会话（卡片内容里的文本框获得焦点时临时解除 NOACTIVATE）：见 <see cref="InputSession"/>。</summary>
+    private readonly InputSession _input;
     private PendingShow? _pendingShow;
 
     // 外观（与岛体同一套规则）：圆角、底衬、描边、明暗主题全都来自 IslandStyle，
@@ -78,8 +84,9 @@ public sealed partial class SpotlightWindow : Window
     private readonly record struct PendingShow(
         Win32.RECT Origin, Size OriginSize, IslandSpotlight Content, IslandStyleKind Style, bool Material);
 
-    public SpotlightWindow(IPluginLogger log)
+    public SpotlightWindow(ISettingsStore settings, IPluginLogger log)
     {
+        _settings = settings;
         _log = log;
         InitializeComponent();
 
@@ -97,6 +104,14 @@ public sealed partial class SpotlightWindow : Window
         SystemBackdrop = new TransparentBackdrop();
         Win32.MakeOverlayStyle(_hwnd);
 
+        // 输入会话：默认不激活，只有卡片内容里的文本框获得焦点/被点击时才临时放开（见 InputSession）。
+        // 会话期间 Esc 全局热键必须撤掉 —— 它会吞掉本应送往输入法的 Esc（取消组词），
+        // 那时改由 XAML 的 RootCanvas_KeyDown 接管。
+        _input = new InputSession(this, _log);
+        _input.Attach(RootCanvas);
+        _input.Entered += OnInputEntered;
+        _input.Exited += OnInputExited;
+
         RootCanvas.Loaded += (_, _) =>
         {
             if (RootCanvas.XamlRoot is not { } root) return;
@@ -104,9 +119,12 @@ public sealed partial class SpotlightWindow : Window
         };
 
         SystemTheme.Changed += OnSystemThemeChanged;
+        _settings.Changed += OnSettingChanged;
         Closed += (_, _) =>
         {
             SystemTheme.Changed -= OnSystemThemeChanged;
+            _settings.Changed -= OnSettingChanged;
+            _input.Dispose();
             if (_hotKeyInstalled)
             {
                 Win32.UninstallEscapeHotKey(_hwnd);
@@ -116,16 +134,41 @@ public sealed partial class SpotlightWindow : Window
     }
 
     /// <summary>
+    /// 进入输入会话：撤掉 Esc 全局热键。热键在系统层就把 Esc 拦走了，输入法/输入框根本收不到；
+    /// 输入期间改由 <see cref="RootCanvas_KeyDown"/> 接管（组词中的第一次 Esc 会被 TSF 先吃掉）。
+    /// </summary>
+    private void OnInputEntered()
+    {
+        if (!_hotKeyInstalled) return;
+        Win32.UninstallEscapeHotKey(_hwnd);
+        _hotKeyInstalled = false;
+    }
+
+    /// <summary>输入会话结束（窗口失活但聚光卡还开着）：把 Esc 全局热键装回去。</summary>
+    private void OnInputExited()
+    {
+        if (_closing || !_shown || _hotKeyInstalled) return;
+        _hotKeyInstalled = Win32.InstallEscapeHotKey(_hwnd, CloseOverlay);
+    }
+
+    /// <summary>
     /// 聚光卡的外观：底衬、描边、圆角、明暗主题 —— 和岛体同一套 <see cref="IslandStyle"/> 规则。
     /// <c>RequestedTheme</c> 也在这里落到根节点上，插件的大卡片内容（<c>{ThemeResource ...}</c>）
     /// 因此跟着岛体一起明暗切换。
     /// </summary>
     private void ApplyChrome()
     {
+        // 用户外观：圆角比例（island.radius）与不透明度（island.opacity），与岛体同一套设置。
+        // 不透明度乘在底衬/描边画刷的 alpha 与内容宿主（SpotlightHost）上 —— Card 本身的 Opacity
+        // 由飞入/飞回的 Composition 动画占用，绝不能在这里写。
+        double radiusScale = Math.Clamp(_settings.Get(RadiusKey, 100.0) / 100.0, 0.0, 2.0);
+        double opacity = Math.Clamp(_settings.Get(OpacityKey, 100.0) / 100.0, 0.05, 1.0);
+
         RootCanvas.RequestedTheme = IslandStyle.IsLightChrome(_style, _light) ? ElementTheme.Light : ElementTheme.Dark;
-        Card.Background = IslandStyle.CreateSpotlightFill(_style, _materialApplied, _light);
-        Card.BorderBrush = IslandStyle.CreateSpotlightStroke(_style, _light);
-        Card.CornerRadius = new CornerRadius(IslandStyle.ResolveSpotlightRadius(_style));
+        Card.Background = IslandStyle.CreateSpotlightFill(_style, _materialApplied, _light, opacity);
+        Card.BorderBrush = IslandStyle.CreateSpotlightStroke(_style, _light, opacity);
+        Card.CornerRadius = new CornerRadius(IslandStyle.ResolveSpotlightRadius(_style, radiusScale));
+        SpotlightHost.Opacity = opacity;
     }
 
     /// <summary>系统换主题：卡片开着就当场换色（没开着的话下次展示自然会取到新主题）。</summary>
@@ -140,6 +183,20 @@ public sealed partial class SpotlightWindow : Window
         if (SystemTheme.IsLight == _light) return;
 
         _light = SystemTheme.IsLight;
+        if (!_shown) return;
+        ApplyChrome();
+    }
+
+    /// <summary>外观设置变化：卡片开着就当场重刷圆角/不透明度（没开着的话下次展示自然取到新值）。</summary>
+    private void OnSettingChanged(string key)
+    {
+        if (key != RadiusKey && key != OpacityKey) return;
+        if (!DispatcherQueue.HasThreadAccess)
+        {
+            DispatcherQueue.TryEnqueue(() => OnSettingChanged(key));
+            return;
+        }
+
         if (!_shown) return;
         ApplyChrome();
     }
@@ -391,6 +448,9 @@ public sealed partial class SpotlightWindow : Window
 
     private void FinishClose()
     {
+        // 先结束输入会话（_closing 为 true，Exited 不会把刚撤下的 Esc 热键又装回去），
+        // 再藏窗口 —— 随后的失活就是老样式下的正常路径了
+        _input.End();
         AppWindow.Hide();
 
         // 先藏窗口再复位视觉状态，下一次打开才不会闪一帧"已经居中"的卡片
@@ -438,6 +498,18 @@ public sealed partial class SpotlightWindow : Window
     private void Scrim_PointerPressed(object sender, PointerRoutedEventArgs e)
     {
         if (!_armed) return;
+        CloseOverlay();
+    }
+
+    /// <summary>
+    /// 输入会话期间的 Esc 通道：会话里 Esc 全局热键已被撤掉（否则它会吞掉送往输入法的 Esc，
+    /// 用户没法取消组词）。此时窗口是激活的，按键正常走 XAML；组词中的第一次 Esc 会被 TSF
+    /// 先吃掉（取消组词），再按才到这里关卡。常态下走全局热键，这里根本收不到 Esc。
+    /// </summary>
+    private void RootCanvas_KeyDown(object sender, KeyRoutedEventArgs e)
+    {
+        if (e.Key != Windows.System.VirtualKey.Escape || !_input.IsActive) return;
+        e.Handled = true;
         CloseOverlay();
     }
 

@@ -4,6 +4,7 @@ using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Documents;
 using Microsoft.UI.Xaml.Media;
 using Microsoft.UI.Xaml.Media.Imaging;
+using Windows.ApplicationModel.DataTransfer;
 using Windows.Storage.Streams;
 using WinIsland.Core;
 using WinIsland.Core.Marketplace;
@@ -17,6 +18,12 @@ namespace WinIsland.Settings;
 /// </summary>
 public sealed partial class MarketplacePage : UserControl
 {
+    private const string MakerSkillRepoGitHub = "https://github.com/luolangaga/WinLandPluginSkills";
+    private const string MakerSkillRepoGitCode = "https://gitcode.com/luolangaga/WinLandPluginSkills";
+    private const string MakerInstallPromptGitHub = "请帮我把这个仓库里的技能下载安装到我的技能目录，装好后告诉我怎么用：\n" + MakerSkillRepoGitHub;
+    private const string MakerInstallPromptGitCode = "请帮我把这个仓库里的技能下载安装到我的技能目录，装好后告诉我怎么用：\n" + MakerSkillRepoGitCode;
+    private const string MakerDemandPrompt = "我想给 WinIsland 灵动岛做一个插件：小岛显示当前温度，展开后看未来三天预报。";
+
     private readonly MarketplaceService _market;
     private readonly PluginHost _plugins;
     private readonly Dictionary<string, ImageSource?> _logos = new(StringComparer.OrdinalIgnoreCase);
@@ -658,6 +665,183 @@ public sealed partial class MarketplacePage : UserControl
         {
             await InstallAsync(plugin);
         }
+    }
+
+    /// <summary>
+    /// 「用 AI 做插件」教程：把 winland-plugin-maker 技能交给 AI 助手，一句需求从零做到上架。
+    /// GitHub 与 GitCode 各给一段提示词（各带复制按钮），小白按三步走即可。
+    /// </summary>
+    private async void MakePlugin_Click(object sender, RoutedEventArgs e)
+    {
+        var panel = new StackPanel { Spacing = 10 };
+
+        panel.Children.Add(MakerBody("不用写代码：把专门的「技能」装进你的 AI 助手，说一句需求，它就从建工程、写代码一路陪你做到装进 WinIsland 实测、打包、上架社区市场。"));
+
+        panel.Children.Add(BuildToolCard());
+
+        panel.Children.Add(MakerSection("第 1 步 · 给 AI 装上「做插件」的技能"));
+        panel.Children.Add(MakerBody("把下面这段原样发给你的 AI 助手，它自己会把技能下载安装好，装完告诉你接下来怎么用。"));
+        panel.Children.Add(MakerPrompt("首选 · GitHub", MakerInstallPromptGitHub));
+        panel.Children.Add(MakerBody("GitHub 连不上就用下面这段，走 GitCode 国内镜像，技能内容一样："));
+        panel.Children.Add(MakerPrompt("GitHub 打不开时 · GitCode 镜像", MakerInstallPromptGitCode));
+
+        panel.Children.Add(MakerSection("第 2 步 · 直接说你要什么"));
+        panel.Children.Add(MakerBody("不用提「技能」两个字，把点子说清楚就行，例如："));
+        panel.Children.Add(MakerPrompt(null, MakerDemandPrompt));
+        panel.Children.Add(MakerHint("把例子里的天气换成你自己的点子；暂时没头绪，也可以先问 AI：「灵动岛能做什么插件？帮我挑个最简单的。」"));
+
+        panel.Children.Add(MakerSection("第 3 步 · 跟着 AI 走完剩下的"));
+        panel.Children.Add(MakerBody("① 检查电脑环境（缺 .NET 等工具会帮你装好）\n② 从官方模板建好插件工程\n③ 写代码并编译\n④ 装进你正在用的 WinIsland，请你亲手测试到满意\n⑤ 打包成 .lwp 插件包\n⑥ 问你要不要上架——同意后投稿社区市场，所有 WinIsland 用户都能搜到"));
+
+        panel.Children.Add(MakerNote("技能里写死了两条硬规矩：测试必须你亲口确认「没问题」才算通过；任何「发到网上」的动作（建仓库 / 推送 / 投稿）都必须先得到你的同意。"));
+
+        var dialog = new ContentDialog
+        {
+            XamlRoot = XamlRoot,
+            Title = "用 AI 做插件",
+            Content = new ScrollViewer
+            {
+                MaxWidth = 520,
+                MaxHeight = 520,
+                HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled,
+                VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
+                Content = panel,
+            },
+            CloseButtonText = "知道了",
+            DefaultButton = ContentDialogButton.Close,
+        };
+
+        await dialog.ShowAsync();
+    }
+
+    private static UIElement BuildToolCard()
+    {
+        var panel = new StackPanel { Spacing = 4 };
+        panel.Children.Add(new TextBlock
+        {
+            Text = "推荐小白使用 WorkBuddy",
+            FontSize = 13,
+            FontWeight = Microsoft.UI.Text.FontWeights.SemiBold,
+            TextWrapping = TextWrapping.Wrap,
+        });
+
+        var line = new TextBlock { FontSize = 12.5, TextWrapping = TextWrapping.Wrap };
+        line.Inlines.Add(new Run { Text = "腾讯出品的 AI 助手，免费：官网 " });
+        var link = new Hyperlink { NavigateUri = new Uri("https://www.workbuddy.cn/") };
+        link.Inlines.Add(new Run { Text = "workbuddy.cn" });
+        line.Inlines.Add(link);
+        line.Inlines.Add(new Run { Text = " 下载安装、微信扫码登录即用。已经在用 Claude Code / Command Code 等 AI 助手的，用手头这个就行，下面的步骤完全一样。" });
+        panel.Children.Add(line);
+
+        return new Border
+        {
+            Style = (Style)Application.Current.Resources["SettingsCardStyle"],
+            Child = panel,
+        };
+    }
+
+    private static TextBlock MakerSection(string text) => new()
+    {
+        Text = text,
+        FontSize = 14,
+        FontWeight = Microsoft.UI.Text.FontWeights.SemiBold,
+        TextWrapping = TextWrapping.Wrap,
+        Margin = new Thickness(0, 6, 0, 0),
+    };
+
+    private static TextBlock MakerBody(string text) => new()
+    {
+        Text = text,
+        FontSize = 12.5,
+        TextWrapping = TextWrapping.Wrap,
+    };
+
+    private static TextBlock MakerHint(string text) => new()
+    {
+        Text = text,
+        FontSize = 12,
+        TextWrapping = TextWrapping.Wrap,
+        Foreground = ThemeBrush("TextFillColorSecondaryBrush", 0x90, 0x90, 0x95),
+    };
+
+    private static UIElement MakerNote(string text) => new Border
+    {
+        BorderBrush = ThemeBrush("AccentFillColorDefaultBrush", 0x00, 0x78, 0xD4),
+        BorderThickness = new Thickness(3, 0, 0, 0),
+        Padding = new Thickness(10, 2, 0, 2),
+        Child = MakerHint(text),
+    };
+
+    /// <summary>一段提示词 + 右侧「复制」按钮；label 为空时不显示上方小标题。</summary>
+    private static UIElement MakerPrompt(string? label, string prompt)
+    {
+        var grid = new Grid { ColumnSpacing = 8 };
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+
+        grid.Children.Add(new Border
+        {
+            Background = ThemeBrush("ControlFillColorSecondaryBrush", 0x14, 0x14, 0x14),
+            BorderBrush = ThemeBrush("CardStrokeColorDefaultBrush", 0x33, 0x33, 0x33),
+            BorderThickness = new Thickness(1),
+            CornerRadius = new CornerRadius(6),
+            Padding = new Thickness(10, 8, 10, 8),
+            Child = new TextBlock
+            {
+                Text = prompt,
+                TextWrapping = TextWrapping.Wrap,
+                IsTextSelectionEnabled = true,
+            },
+        });
+
+        var copy = new Button
+        {
+            Content = "复制",
+            Tag = prompt,
+            MinWidth = 64,
+            VerticalAlignment = VerticalAlignment.Center,
+        };
+        copy.Click += CopyPrompt_Click;
+        Grid.SetColumn(copy, 1);
+        grid.Children.Add(copy);
+
+        if (string.IsNullOrEmpty(label))
+        {
+            return grid;
+        }
+
+        var host = new StackPanel { Spacing = 4 };
+        host.Children.Add(new TextBlock
+        {
+            Text = label,
+            FontSize = 11,
+            Foreground = ThemeBrush("TextFillColorSecondaryBrush", 0x90, 0x90, 0x95),
+        });
+        host.Children.Add(grid);
+        return host;
+    }
+
+    private static async void CopyPrompt_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is not Button button || button.Tag is not string text)
+        {
+            return;
+        }
+
+        try
+        {
+            var package = new DataPackage();
+            package.SetText(text);
+            Clipboard.SetContent(package);
+        }
+        catch
+        {
+            return;
+        }
+
+        button.Content = "已复制";
+        await Task.Delay(1600);
+        button.Content = "复制";
     }
 
     /// <summary>README 以 Markdown 渲染；相对链接解析到仓库 main 分支上的对应文件。</summary>

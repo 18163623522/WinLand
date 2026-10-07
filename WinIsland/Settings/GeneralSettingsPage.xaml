@@ -40,6 +40,58 @@
         </Border>
 
         <Border Style="{StaticResource SettingsCardStyle}">
+            <StackPanel Spacing="12">
+                <TextBlock Text="外观微调" />
+                <Grid ColumnSpacing="16">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="Auto" />
+                    </Grid.ColumnDefinitions>
+                    <StackPanel Spacing="2" VerticalAlignment="Center">
+                        <TextBlock Text="圆角比例 (%)" />
+                        <TextBlock
+                            Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                            Style="{StaticResource CaptionTextBlockStyle}"
+                            Text="100% 为风格默认圆角；同时作用于岛体、展开队列与聚光卡"
+                            TextWrapping="Wrap" />
+                    </StackPanel>
+                    <Slider
+                        x:Name="RadiusSlider"
+                        Grid.Column="1"
+                        Width="200"
+                        Maximum="200"
+                        Minimum="0"
+                        StepFrequency="5"
+                        VerticalAlignment="Center"
+                        ValueChanged="RadiusSlider_ValueChanged" />
+                </Grid>
+                <Grid ColumnSpacing="16">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="Auto" />
+                    </Grid.ColumnDefinitions>
+                    <StackPanel Spacing="2" VerticalAlignment="Center">
+                        <TextBlock Text="不透明度 (%)" />
+                        <TextBlock
+                            Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                            Style="{StaticResource CaptionTextBlockStyle}"
+                            Text="作用于岛体、展开队列与聚光卡；Fluent 系统材质本身不随此调淡（材质由系统绘制）"
+                            TextWrapping="Wrap" />
+                    </StackPanel>
+                    <Slider
+                        x:Name="OpacitySlider"
+                        Grid.Column="1"
+                        Width="200"
+                        Maximum="100"
+                        Minimum="10"
+                        StepFrequency="5"
+                        VerticalAlignment="Center"
+                        ValueChanged="OpacitySlider_ValueChanged" />
+                </Grid>
+            </StackPanel>
+        </Border>
+
+        <Border Style="{StaticResource SettingsCardStyle}">
             <Grid ColumnSpacing="16">
                 <Grid.ColumnDefinitions>
                     <ColumnDefinition Width="*" />

@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="zh-CN" class="theme-light">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <meta name="color-scheme" content="light dark" />
+
+    <title>WinIsland — Windows 上的动态岛</title>
+    <meta
+      name="description"
+      content="WinIsland 是把「动态岛」搬到 Windows 桌面的开源应用：媒体控制、电量、硬件监控、临时消息、文件投放、插件市场，一个岛全包。基于 WinUI 3 / Windows App SDK。"
+    />
+    <meta name="keywords" content="WinIsland, WinLand, 动态岛, Dynamic Island, Windows, WinUI 3, Windows App SDK, 插件, 开源" />
+
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="WinIsland — Windows 上的动态岛" />
+    <meta
+      property="og:description"
+      content="媒体控制、电量、硬件监控、临时消息、文件投放、插件市场 —— 一个岛全包。"
+    />
+    <meta name="theme-color" content="#0a84ff" />
+
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <!-- 图标字体先于首屏加载，避免图标晚一拍才出现 -->
+    <link rel="preload" as="font" type="font/ttf" href="/src/assets/Fonts/SEGOEICONS.TTF" crossorigin />
+  </head>
+  <body>
+    <div id="app"></div>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>

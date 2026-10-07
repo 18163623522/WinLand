@@ -8,7 +8,24 @@
     mc:Ignorable="d">
 
     <StackPanel Spacing="8">
-        <TextBlock Style="{StaticResource TitleTextBlockStyle}" Text="插件市场" />
+        <Grid ColumnSpacing="12">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*" />
+                <ColumnDefinition Width="Auto" />
+            </Grid.ColumnDefinitions>
+            <TextBlock
+                Style="{StaticResource TitleTextBlockStyle}"
+                Text="插件市场"
+                VerticalAlignment="Center" />
+            <Button
+                x:Name="MakePluginButton"
+                Grid.Column="1"
+                Click="MakePlugin_Click"
+                Content="用 AI 做插件"
+                Style="{StaticResource AccentButtonStyle}"
+                ToolTipService.ToolTip="不用写代码：把「做插件」技能装进你的 AI 助手，说一句需求，它带你从零做到上架社区市场"
+                VerticalAlignment="Center" />
+        </Grid>
         <TextBlock
             Margin="0,0,0,12"
             Foreground="{ThemeResource TextFillColorSecondaryBrush}"

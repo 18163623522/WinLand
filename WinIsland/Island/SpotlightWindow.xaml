@@ -11,8 +11,13 @@
     <!-- 聚光卡全屏覆盖窗：一整块透明画布，从下到上依次是遮罩 → 卡片 → 提示。
          点击遮罩（= 卡片外任何位置）收起；卡片在遮罩上层，点卡片不会触发收起。
          动画全部走 Composition（Offset / Scale / RotationAngleInDegrees / Opacity），
-         这里只负责布局，XAML 里不写任何 Storyboard。 -->
-    <Canvas x:Name="RootCanvas" Background="Transparent" RequestedTheme="Dark">
+         这里只负责布局，XAML 里不写任何 Storyboard。
+         KeyDown：输入会话期间 Esc 全局热键被撤掉，Esc 改走这条路（见 SpotlightWindow.RootCanvas_KeyDown）。 -->
+    <Canvas
+        x:Name="RootCanvas"
+        Background="Transparent"
+        KeyDown="RootCanvas_KeyDown"
+        RequestedTheme="Dark">
         <Rectangle
             x:Name="Scrim"
             Fill="#FF000000"

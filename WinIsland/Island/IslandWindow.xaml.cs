@@ -108,6 +108,10 @@ public sealed partial class IslandWindow : Window
     private const int TapSuppressMs = 400;
     /// <summary>翻页位记住的那张卡（插件 id）：纯界面状态，只用于「下次展开还看这张」。</summary>
     private const string QueueTailKey = "island.queueTail";
+    /// <summary>岛体圆角比例（百分比，100 = 风格默认）。</summary>
+    private const string RadiusKey = "island.radius";
+    /// <summary>岛体不透明度（百分比，10..100）。</summary>
+    private const string OpacityKey = "island.opacity";
     private const double DefaultOffset = 6.0;
     /// <summary>靠左/靠右时距条带（或工作区）边缘的间距。Win11 图标居中排列，任务栏左端通常是空的。</summary>
     private const double EdgeInset = 12;
@@ -138,8 +142,11 @@ public sealed partial class IslandWindow : Window
     private readonly nint _hwnd;
     private readonly OverlappedPresenter _presenter;
 
-    // 常驻活动列表（按优先级降序排列，优先级相同则按插入顺序）
+    // 常驻活动列表（按原有优先级降序排列，优先级相同则按插入顺序）：小岛常驻取 [0]
     private readonly List<(string Owner, IslandLiveContent Content)> _live = new();
+    // 展开侧顺序（按展开优先级降序排列）：展开主卡取 [0]、队列取 [1..]。
+    // 没有任何插件声明/设置展开优先级时，它与 _live 完全一致（旧行为不变）。
+    private readonly List<(string Owner, IslandLiveContent Content)> _expandedOrder = new();
     // 临时内容
     private UIElement? _tempContent;
     private Size _tempSize;
@@ -176,6 +183,8 @@ public sealed partial class IslandWindow : Window
     private volatile bool _touchExpand;
     /// <summary>聚光卡（超级展开）打开期间：岛体整块藏起来，看门狗/悬停也不再驱动它。</summary>
     private bool _spotlightOccluded;
+    /// <summary>输入会话（内容里的文本框获得焦点时临时解除 NOACTIVATE）：见 <see cref="InputSession"/>。</summary>
+    private readonly InputSession _input;
     private int _fadeVersion;
     private Size _currentIsland;
     private int _windowPhysW;
@@ -228,6 +237,9 @@ public sealed partial class IslandWindow : Window
     // 最近一次圆角对应的岛体高度与展开态，风格切换时据此按当前状态重算圆角
     private double _radiusHeight = IdleBaseSize.Height;
     private bool _radiusExpanded;
+    // 用户外观：圆角比例（1.0 = 风格默认）与岛体不透明度（0.05..1）
+    private double _radiusScale = 1.0;
+    private double _opacity = 1.0;
 
     // 岛体锚定方向：false = 贴工作区顶部（队列向下），true = 贴任务栏条带（队列向上）
     private bool _bottomAnchored;
@@ -278,11 +290,27 @@ public sealed partial class IslandWindow : Window
     // 最近一次应用窗口尺寸时使用的缩放比，用于识别 DPI 变化。
     private double _appliedScale;
 
-    // 主活动（优先级最高）
-    private IslandLiveContent? ActiveLive => _live.Count > 0 ? _live[0].Content : null;
-    // 队列活动（除主活动外的其余活动）
+    // 展开侧：_expandedOrder[0] = 展开主卡；小岛常驻固定取 _live[0]（原优先级最高者，与展开优先级无关）。
+    /// <summary>展开态主岛显示的活动（展开优先级最高者；未设展开优先级时即原优先级最高者）。</summary>
+    private IslandLiveContent? MainLive => _expandedOrder.Count > 0 ? _expandedOrder[0].Content : null;
+    private string MainOwner => _expandedOrder.Count > 0 ? _expandedOrder[0].Owner : "(无)";
+
+    /// <summary>小岛常驻的活动（原优先级最高者，即 <c>_live[0]</c>）：与展开顺序无关，兼容既有行为。</summary>
+    private (string Owner, IslandLiveContent Content)? CompactEntry
+        => _live.Count == 0 ? null : _live[0];
+    private IslandLiveContent? CompactLive => CompactEntry?.Content;
+    private string CompactOwner => CompactEntry?.Owner ?? "(无)";
+
+    /// <summary>
+    /// 当前岛体上显示的内容：展开时是主卡，收起时是小岛常驻那张。
+    /// 绝大多数调用点都在 <see cref="_expanded"/> 置位之后才读它，所以它们自动取到正确的一张。
+    /// </summary>
+    private IslandLiveContent? ActiveLive => _expanded ? MainLive : CompactLive;
+    private string ActiveOwner => _expanded ? MainOwner : CompactOwner;
+
+    // 队列活动（除展开主卡外的其余活动，按展开优先级排列）
     private IReadOnlyList<(string Owner, IslandLiveContent Content)> QueueItems
-        => _live.Count > 1 ? _live.Skip(1).ToList() : Array.Empty<(string, IslandLiveContent)>();
+        => _expandedOrder.Count > 1 ? _expandedOrder.Skip(1).ToList() : Array.Empty<(string, IslandLiveContent)>();
 
     /// <summary>临时消息在队列里的"主人"标识（不是插件 id，翻页位永远不会落到它身上）。</summary>
     private const string TempCardOwner = "(message)";
@@ -295,8 +323,8 @@ public sealed partial class IslandWindow : Window
     {
         if (_tempCard == null) return QueueItems;
 
-        var items = new List<(string Owner, IslandLiveContent Content)>(_live.Count) { (TempCardOwner, _tempCard) };
-        for (int i = 1; i < _live.Count; i++) items.Add(_live[i]);
+        var items = new List<(string Owner, IslandLiveContent Content)>(_expandedOrder.Count) { (TempCardOwner, _tempCard) };
+        for (int i = 1; i < _expandedOrder.Count; i++) items.Add(_expandedOrder[i]);
         return items;
     }
 
@@ -348,6 +376,12 @@ public sealed partial class IslandWindow : Window
         _presenter.IsAlwaysOnTop = false;
         _presenter.IsAlwaysOnTop = true;
         Win32.MakeIslandStyle(_hwnd);
+
+        // 输入会话：默认不激活，只有内容里的文本框获得焦点/被点击时才临时放开（见 InputSession）。
+        // 检测挂 RootGrid 而不是 IslandRoot：展开队列卡片里的输入控件同样要接住。
+        _input = new InputSession(this, _log, () => UpdateHitRegion(force: true));
+        _input.Attach(RootGrid);
+        _input.Exited += OnInputSessionExited;
 
         _idleDot = new Ellipse
         {
@@ -415,6 +449,7 @@ public sealed partial class IslandWindow : Window
         {
             SystemTheme.Changed -= OnSystemThemeChanged;
             DisplayResolver.DisplaysInvalidated -= OnDisplaysInvalidatedFromAnyThread;
+            _input.Dispose();
             StopPositionSlide();
             _positionSlide = null;
             _watchdog?.Stop();
@@ -436,6 +471,7 @@ public sealed partial class IslandWindow : Window
         ApplyScaleSettings();
         ApplyPositionMode();
         ApplyStyle();
+        ApplyAppearance();
         ApplyDropSetting();
         EnsureCanvas();
     }
@@ -516,6 +552,7 @@ public sealed partial class IslandWindow : Window
     public void RefreshFromSettings()
     {
         ApplyStyle();
+        ApplyAppearance();
         ApplyPositionMode();
         ApplyDropSetting();
         ApplyScaleSettings();
@@ -523,6 +560,26 @@ public sealed partial class IslandWindow : Window
         EnsureCanvas();
         ApplyCanvasBounds();
         UpdateFullscreenState(force: true);
+    }
+
+    /// <summary>
+    /// 用户外观设置：圆角比例（<c>island.radius</c>）与岛体不透明度（<c>island.opacity</c>）。
+    /// 不透明度写在 <see cref="IslandStack"/> 上而不是岛体本身 —— 岛体的 Opacity 归聚光卡遮挡的
+    /// 整块淡入淡出使用，挂在父级一次覆盖主岛＋队列卡片＋翻页按钮，且与那次淡出天然相乘。
+    /// </summary>
+    private void ApplyAppearance()
+    {
+        double radiusPercent = _settings.Get(RadiusKey, 100.0);
+        _radiusScale = Math.Clamp(radiusPercent / 100.0, 0.0, 2.0);
+
+        double opacityPercent = _settings.Get(OpacityKey, 100.0);
+        _opacity = Math.Clamp(opacityPercent / 100.0, 0.05, 1.0);
+        IslandStack.Opacity = _opacity;
+
+        // 圆角是点击穿透形状的来源，必须重算并重下发
+        ApplyCornerRadius(_radiusHeight, _radiusExpanded);
+        RefreshQueueStyle();
+        UpdateHitRegion(force: true);
     }
 
     /// <summary>
@@ -596,6 +653,7 @@ public sealed partial class IslandWindow : Window
             _hoverIntent.Stop();
             ClearDropSession();
             ClearTouchExpand();
+            _input.End();   // 输入会话随遮挡结束；_shown 已为 false，Exited 不会再触发收起
             FadeIslandOpacity(0, SpotlightFadeOutMs, () =>
             {
                 if (!_spotlightOccluded) return;
@@ -785,7 +843,7 @@ public sealed partial class IslandWindow : Window
         foreach (var surface in _queueSurfaces)
         {
             surface.ApplyStyle(_style, _materialApplied, _light);
-            surface.SetRadius(IslandStyle.ResolveQueueRadius(_style, surface.Border.Height));
+            surface.SetRadius(IslandStyle.ResolveQueueRadius(_style, surface.Border.Height, _radiusScale));
         }
 
         _pager?.ApplyStyle(_style, _materialApplied, _light);
@@ -802,7 +860,8 @@ public sealed partial class IslandWindow : Window
 
     private Size ComputeTotalSize(bool expanded)
     {
-        var live = ActiveLive;
+        // expanded 是入参，可能与 _expanded 字段不一致（画布预留要在两态都算对），所以显式挑。
+        var live = expanded ? MainLive : CompactLive;
         if (live == null) return IdleSize;
 
         Size main = expanded ? ExpandedMainSize() : CompactSizeOf(live);
@@ -862,12 +921,12 @@ public sealed partial class IslandWindow : Window
 
     /// <summary>展开态主岛尺寸：高度由活动自己决定，宽度统一到栈宽（与卡片边缘对齐）。</summary>
     private Size ExpandedMainSize()
-        => new(StackWidth(), ActiveLive?.ExpandedSize.Height ?? IdleSize.Height);
+        => new(StackWidth(), MainLive?.ExpandedSize.Height ?? IdleSize.Height);
 
     /// <summary>展开态的统一宽度：主岛与所有队列卡片（跨列也一样）取最大展开宽度，边缘对齐。</summary>
     private double StackWidth()
     {
-        double width = ActiveLive?.ExpandedSize.Width ?? IdleSize.Width;
+        double width = MainLive?.ExpandedSize.Width ?? IdleSize.Width;
         foreach (var (_, content) in _live)
         {
             width = Math.Max(width, content.ExpandedSize.Width);
@@ -889,17 +948,36 @@ public sealed partial class IslandWindow : Window
         return height > 0 ? height : IdleSize.Height;
     }
 
-    /// <summary>按生效优先级稳定排序（数值大的在前；相同则保持注册顺序）。</summary>
+    /// <summary>
+    /// 重排活动。`_live` 按原优先级降序（小岛常驻取第一张，行为与之前完全一致）；
+    /// `_expandedOrder` 按「展开优先级」降序（未设置的插件回退到原优先级），决定展开主卡与队列。
+    /// 两者都是稳定排序：数值相同则保持注册顺序。
+    /// </summary>
     private void SortLive()
     {
-        var sorted = _live.OrderByDescending(t => EffectivePriority(t.Owner, t.Content)).ToList();
+        // 从同一份「注册顺序」快照各自稳定排序：并列时两张表都保持注册顺序
+        var snapshot = _live.ToList();
+
         _live.Clear();
-        _live.AddRange(sorted);
+        _live.AddRange(snapshot.OrderByDescending(t => EffectivePriority(t.Owner, t.Content)));
+
+        _expandedOrder.Clear();
+        _expandedOrder.AddRange(snapshot.OrderByDescending(t => ExpandedPriority(t.Owner, t.Content)));
     }
 
-    /// <summary>生效优先级：宿主设置 <c>plugin.&lt;id&gt;.priority</c> 覆盖插件自己声明的优先级。</summary>
+    /// <summary>原优先级：宿主设置 <c>plugin.&lt;id&gt;.priority</c> 覆盖插件自己声明的 <c>Priority</c>（既有行为）。</summary>
     private double EffectivePriority(string owner, IslandLiveContent content)
         => _settings.Get<double?>($"plugin.{owner}.priority", null) ?? content.Priority;
+
+    /// <summary>
+    /// 展开优先级：宿主设置 <c>plugin.&lt;id&gt;.expandedPriority</c> 覆盖插件声明的
+    /// <see cref="IslandLiveContent.ExpandedPriority"/>；两者都没有时回退到原优先级 ——
+    /// 所以只要没人设置这个新值，展开顺序与旧行为逐字一致。
+    /// </summary>
+    private double ExpandedPriority(string owner, IslandLiveContent content)
+        => _settings.Get<double?>($"plugin.{owner}.expandedPriority", null)
+           ?? content.ExpandedPriority
+           ?? EffectivePriority(owner, content);
 
     /// <summary>
     /// 当前内容集合在「空闲 / 临时消息 / 紧凑 / 展开 + 队列」各状态下所需的最大画布尺寸（含透明 padding）。
@@ -948,8 +1026,9 @@ public sealed partial class IslandWindow : Window
             return;
         }
 
-        var live = ActiveLive;
         bool wantExpand = _hover || _touchExpand;
+        // 展开显示主卡、收起显示小岛常驻那张：此刻 _expanded 可能还是旧值，显式按意图挑。
+        var live = wantExpand ? MainLive : CompactLive;
 
         // 临时消息：展开时改挂队列首卡（主岛让给活动内容），收起时回到主岛
         if (_tempContent != null && !wantExpand)
@@ -996,6 +1075,7 @@ public sealed partial class IslandWindow : Window
             {
                 _expanded = false;
                 TeardownQueue();
+                CompactOutgoingMain(live);
                 Size compact = CompactSizeOf(live);
                 AnimateIslandSize(compact, CollapseDuration);
                 ApplyCornerRadius(compact.Height, expanded: false);
@@ -1017,6 +1097,7 @@ public sealed partial class IslandWindow : Window
             {
                 _expanded = false;
                 TeardownQueue();
+                CompactOutgoingMain(live);
                 SwapContent(live.CompactContent ?? _idleContent, animate: true);
                 Size compact = CompactSizeOf(live);
                 AnimateIslandSize(compact, CollapseDuration);
@@ -1048,6 +1129,10 @@ public sealed partial class IslandWindow : Window
     {
         // 活动顺序可能刚变过（优先级调整）：先按各自记录的视图安全拆掉旧卡片，再重建
         TeardownQueue();
+
+        // 展开时被换下的「小岛常驻」视图正要变成队列卡片：它此刻若还被 ContentLeaving 层攥着，
+        // 挂进卡片就是"元素已在另一个父级下"（COMException）。队列马上要接管它的归属，先释放。
+        ClearLeaving();
 
         var items = QueueDisplayItems();
         if (items.Count == 0)
@@ -1113,7 +1198,7 @@ public sealed partial class IslandWindow : Window
         surface.Border.Width = width;
         surface.Border.Height = height;
         surface.ApplyStyle(_style, _materialApplied, _light);
-        surface.SetRadius(IslandStyle.ResolveQueueRadius(_style, height));
+        surface.SetRadius(IslandStyle.ResolveQueueRadius(_style, height, _radiusScale));
         surface.SetContent(inner);
 
         // 队列卡片也是"那个插件的岛"：点它要触发它自己的 OnTap（通常就是打开它的聚光卡）。
@@ -1385,8 +1470,6 @@ public sealed partial class IslandWindow : Window
         return grid;
     }
 
-    private string ActiveOwner => _live.Count > 0 ? _live[0].Owner : "(无)";
-
     /// <summary>
     /// 插件视图的形态动画属于插件代码：必须在每个调用点守卫，
     /// 否则插件动画抛错会变成 WinUI 未处理异常（stowed exception）直接崩掉宿主。
@@ -1405,12 +1488,25 @@ public sealed partial class IslandWindow : Window
         }
     }
 
+    /// <summary>
+    /// 收起时把正在退场的「展开主卡」视图收回到紧凑态：小岛常驻（原优先级最高者）与展开主卡
+    /// （展开优先级最高者）可能是两张不同的视图，主卡视图被换下后仍是展开态，插件内部的展开计时器/
+    /// 辉光动画会一直跑。让插件自己的 morph 收回它（不是同一张视图才需要）。
+    /// </summary>
+    private void CompactOutgoingMain(IslandLiveContent? compact)
+    {
+        if (MainLive is not { MorphView: { } mainView }) return;
+        if (compact?.MorphView != null && ReferenceEquals(compact.MorphView, mainView)) return;
+        AnimateMorphView(MainOwner, mainView, expand: false);
+    }
+
     /// <summary>展开岛体。返回是否真的展开了 —— 没有可展开内容时返回 false（调用方据此决定要不要当成一次普通点击）。</summary>
     private bool OnHoverEnter()
     {
         if (_dropping) return false;
 
-        var live = ActiveLive;
+        // 展开目标恒为展开主卡（此处 _expanded 尚为 false，ActiveLive 会取到小岛那张）
+        var live = MainLive;
         if (live == null) return false;
         if (live.MorphView == null && live.ExpandedContent == null) return false;
         if (_expanded) return false;
@@ -1443,15 +1539,20 @@ public sealed partial class IslandWindow : Window
     private void OnHoverExit()
     {
         if (_dropping) return;
+        // 输入会话期间不收起：用户可能正打着字，鼠标移开不能把输入框收走。
+        // 会话结束（窗口失活）时由 OnInputSessionExited 补一次收起裁决。
+        if (_input.IsActive) return;
         if (!_expanded) return;
 
         ClearTouchExpand();
 
-        // 先安全拆卸队列（停止动画 + 断开 Border.Child + 把主 View 放回 ContentHost）。
+        // 先摘掉展开态：TeardownQueue 与下面的内容选择据此取到「小岛常驻」那一张
+        // （不是展开主卡），否则收起后会停在主卡的视图上。
+        _expanded = false;
+
+        // 安全拆卸队列（停止动画 + 断开 Border.Child + 把常驻 View 放回 ContentHost）。
         // 翻页位不动：下次展开还是用户翻到的那张卡
         TeardownQueue();
-
-        _expanded = false;
 
         // 展开期间消息挂成队列首卡：收起后它回到主岛，剩余时长继续
         if (_tempContent != null)
@@ -1463,8 +1564,11 @@ public sealed partial class IslandWindow : Window
             return;
         }
 
-        var live = ActiveLive;
+        var live = CompactLive;
         if (live == null) return;
+
+        // 展开主卡若是另一张视图，收回它的展开态（否则插件内部计时器/动画一直跑）
+        CompactOutgoingMain(live);
 
         if (live.MorphView != null)
         {
@@ -1480,6 +1584,19 @@ public sealed partial class IslandWindow : Window
             AnimateIslandSize(compact, CollapseDuration);
             ApplyCornerRadius(compact.Height, expanded: false);
         }
+    }
+
+    /// <summary>
+    /// 输入会话结束（窗口失活，样式已在 InputSession 里还原）：把被压住的悬停收起裁决补回来。
+    /// 隐藏/遮挡路径（_shown 已为 false）与投放会话不参与。
+    /// </summary>
+    private void OnInputSessionExited()
+    {
+        if (!_shown || _dropping || !_expanded) return;
+        if (IsCursorOverIsland()) return;   // 鼠标还在岛上：交回正常的悬停逻辑
+        _hover = false;
+        _hoverGuard.Stop();
+        OnHoverExit();
     }
 
     /// <summary>悬停展开开关（island.hoverExpand，默认开）。关掉后只有点击岛体（或触控轻点）才展开。</summary>
@@ -1526,7 +1643,7 @@ public sealed partial class IslandWindow : Window
     {
         _radiusHeight = height;
         _radiusExpanded = expanded;
-        _mainSurface.SetRadius(IslandStyle.ResolveRadius(_style, height, expanded));
+        _mainSurface.SetRadius(IslandStyle.ResolveRadius(_style, height, expanded, _radiusScale));
     }
 
     /// <summary>
@@ -1972,7 +2089,8 @@ public sealed partial class IslandWindow : Window
     private double PlacementWidth()
     {
         double width = IslandRoot.ActualWidth > 0 ? IslandRoot.ActualWidth : _currentIsland.Width;
-        if (ActiveLive is { } live) width = Math.Max(width, CompactSizeOf(live).Width);
+        // 落点用静止态（收起 = 小岛常驻那张）的宽度
+        if (CompactLive is { } live) width = Math.Max(width, CompactSizeOf(live).Width);
         return width;
     }
 
@@ -2637,7 +2755,8 @@ public sealed partial class IslandWindow : Window
             AppWindow.Show(false);
             _presenter.IsAlwaysOnTop = false;
             _presenter.IsAlwaysOnTop = true;
-            Win32.MakeIslandStyle(_hwnd);
+            // 输入会话中重断言必须保住可激活状态，否则会前功尽弃
+            Win32.MakeIslandStyle(_hwnd, noActivate: !_input.IsActive);
             // MakeIslandStyle 里的 SWP_FRAMECHANGED 可能让窗口形状失效，重新断言一次
             UpdateHitRegion(force: true);
         }
@@ -2647,6 +2766,7 @@ public sealed partial class IslandWindow : Window
             _hoverGuard.Stop();
             _hover = false;
             ClearTouchExpand();
+            _input.End();   // 隐藏前先还原样式；_shown 已为 false，Exited 不会再触发收起
             AppWindow.Hide();
         }
     }
@@ -2656,8 +2776,9 @@ public sealed partial class IslandWindow : Window
         // 翻页位是岛体自己写的界面状态：别为它重扫一遍设置 —— 那会重建队列、把刚点出来的翻页动画打断
         if (key == QueueTailKey) return;
 
-        // 宿主级优先级（plugin.<id>.priority）：立即重排活动并重建当前状态
-        if (key.StartsWith("plugin.", StringComparison.Ordinal) && key.EndsWith(".priority", StringComparison.Ordinal))
+        // 宿主级优先级（plugin.<id>.priority / plugin.<id>.expandedPriority）：立即重排活动并重建当前状态
+        if (key.StartsWith("plugin.", StringComparison.Ordinal)
+            && (key.EndsWith(".priority", StringComparison.Ordinal) || key.EndsWith(".expandedPriority", StringComparison.Ordinal)))
         {
             if (!DispatcherQueue.HasThreadAccess)
             {
@@ -2884,6 +3005,7 @@ public sealed partial class IslandWindow : Window
         if (!_hover) return;
         if (_dropping) return;         // 投放会话期间岛体是投放面板，悬停看门狗不参与收起裁决
         if (_touchExpand) return;      // 触控展开常驻：鼠标位置不参与收起裁决
+        if (_input.IsActive) return;   // 输入会话常驻：输入期间鼠标移开也不收起
         if (!IsCursorOverIsland())
         {
             _hoverIntent.Stop();

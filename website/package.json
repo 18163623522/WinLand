@@ -1,0 +1,24 @@
+{
+  "name": "winisland-official-site",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "WinIsland 官方网站 — 用 WinUIonWeb 在网页上复刻一个可交互的灵动岛",
+  "scripts": {
+    "dev": "vite . --host=0.0.0.0",
+    "build": "npm run audit:i18n && vite build",
+    "preview": "vite preview --host=0.0.0.0",
+    "type-check": "vue-tsc --build",
+    "audit:i18n": "node tools/audit-i18n.cjs"
+  },
+  "dependencies": {
+    "vue": "^3.5.32",
+    "vue-router": "^4.6.4"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-vue": "^6.0.6",
+    "typescript": "~5.9.3",
+    "vite": "^7.1.12",
+    "vue-tsc": "^3.1.4"
+  }
+}

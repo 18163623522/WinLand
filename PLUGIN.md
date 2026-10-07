@@ -142,11 +142,28 @@ Context.Island.SetContent(new IslandLiveContent
 });
 ```
 
-`Priority` 决定多个插件同时注册内容时谁占据主岛（数值大者优先，其余进入展开后的队列）。
-小岛只显示主内容；展开后是主内容 + 3 张队列卡片（单列）—— 前两张按优先级固定，最后一张是「翻页位」：
-队列还有别的活动时，末尾会出现一个圆形切换按钮，点一下把翻页位换成下一个（循环），
-所以**排在后面的活动也一定翻得到**，优先级只决定顺序。
-宿主可以在「设置 → 插件管理」里用 `plugin.<pluginId>.priority` 覆盖你声明的 `Priority`，所以不要依赖固定顺序。
+`Priority` 决定多个插件同时注册内容时的默认顺序（数值大者优先）：**小岛常驻**显示数值最高的活动。
+
+想调整**展开后**的排列，用可选的 `ExpandedPriority`（不设时等同于 `Priority`，所以旧插件行为不变）：
+
+```csharp
+// 小岛常驻仍按 Priority 取最高（这里假设别人是 100），但展开时这张卡排最前
+Context.Island.SetContent(new IslandLiveContent
+{
+    Priority = 20,             // 小岛常驻不抢
+    ExpandedPriority = 200,    // 展开主卡是这一张
+    MorphView = new MyMorphView(),
+    CompactSize = new Size(250, 40),
+    ExpandedSize = new Size(420, 150),
+});
+```
+
+展开后是**展开优先级最高者**作主卡 + 3 张队列卡片（单列，按展开优先级排列）—— 前两张固定，
+最后一张是「翻页位」：队列还有别的活动时，末尾会出现一个圆形切换按钮，点一下把翻页位换成下一个（循环），
+所以**排在后面的活动也一定翻得到**，优先级只决定排列。
+宿主还可以在「设置 → 插件管理」里用 `plugin.<pluginId>.priority`（小岛/默认顺序）与
+`plugin.<pluginId>.expandedPriority`（展开顺序）覆盖你声明的值——两条都改不了，
+所以**不要依赖固定顺序，也不要把"自己一定在主岛/小岛"写进逻辑**。
 
 **尺寸由宿主统一**：展开态所有元素同宽（取所有活动里最大的展开宽度）、所有队列卡片同高（取**所有**队列活动里最高的一张 ——
 翻页位可能轮到任何一个），宿主会把卡片拉伸到这个统一尺寸。视图请用自适应布局（`Grid` 的 `*` 行列、`HorizontalAlignment/VerticalAlignment=Stretch`），
@@ -181,6 +198,23 @@ void OnMorphTick()
 
 需要「临时不占岛」时，推荐像 `samples/HardwareMonitor` 那样加一个 `enabled` 设置：
 关掉时 `SetContent(null)`，打开时重新 `SetContent(content)`，插件本身继续运行。
+
+### 输入框（键盘输入）
+
+岛体与聚光卡默认**不抢焦点**（窗口是 `WS_EX_NOACTIVATE`，点它们不会打断你正在用的程序 —— 剪贴板插件「直接粘贴回原窗口」就依赖这条）。但从宿主 **2.4.0** 起，插件视图里的标准文本输入控件可以正常打字，插件**零改动**：
+
+```csharp
+var box = new TextBox { PlaceholderText = "输入后回车" };
+box.KeyDown += (_, e) => { if (e.Key == Windows.System.VirtualKey.Enter) Apply(box.Text); };
+```
+
+- 用户在岛体/聚光卡内容里点到或聚焦 `TextBox` / `PasswordBox` / `RichEditBox`（含 `NumberBox`、`AutoSuggestBox` 的内部编辑器）时，宿主临时把窗口切到可激活并抢一次前台 —— 光标、选区、**输入法（中文候选窗会正常显示在岛体上方）**都可用；窗口一失活就还原默认的"不抢焦点"。
+- 点其它控件（按钮、滑块、开关……）**不会**抢焦点，原有交互完全不受影响。
+- **输入期间岛不会因鼠标移开而收起**（保护正在进行的输入）；点岛外 / 别的程序 = 结束输入，岛恢复正常的悬停收起行为。
+- 支持的是**标准控件**；完全自绘的输入（自己画光标、自己处理按键）暂不支持。
+- 建议在 `plugin.json` 里用 `"min_host_version": "2.4.0"` 声明门槛（旧宿主上输入框点得亮、打不了字）。
+
+聚光卡里的输入遵循同一套规则；`Esc` 语义不变（关闭卡片）—— 组词中的第一次 `Esc` 会被输入法先吃掉（取消组词），再按才关卡。
 
 ### 超级展开（Spotlight 聚光卡）
 
